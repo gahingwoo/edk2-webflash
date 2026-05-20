@@ -13,7 +13,7 @@ Windows: install WinUSB for the device via [Zadig](https://zadig.akeo.ie/).
 
 ## Usage
 
-1. Hold the **MaskROM button**, plug in USB-C, release
+1. Hold the **MaskROM button**, plug in USB-HOST, release
 2. Click **Flash UEFI** → pick the Rockchip device from the browser prompt
 3. Loader uploads, board reboots → click **Reconnect Device** → pick device again
 4. Firmware flashes to SPI NOR, board reboots into UEFI
