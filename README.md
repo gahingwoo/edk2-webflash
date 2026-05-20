@@ -1,6 +1,6 @@
 # edk2-webflash
 
-WebUSB flasher for [edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576) UEFI on Rockchip RK3576 (Radxa ROCK 4D).
+WebUSB flasher for [edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576) UEFI on Rockchip RK3576.
 Runs entirely in the browser — no app, no driver, no USB passthrough.
 Wraps [rkdeveloptool](https://github.com/rockchip-linux/rkdeveloptool) compiled to WASM via Emscripten.
 
