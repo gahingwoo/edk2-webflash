@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ROCK 4D — UEFI Flash</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 620px; margin: 2.5rem auto; padding: 0 1.25rem;
+      color: #1a1a1a; line-height: 1.5;
+    }
+    h2 { font-size: 1.35rem; margin-bottom: .2rem; }
+    .subtitle { font-size: .85rem; color: #666; margin-bottom: 1.4rem; }
+    .subtitle a { color: inherit; }
+    .steps {
+      background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: .8rem 1rem .8rem 2rem; margin-bottom: 1.4rem; font-size: .88rem;
+    }
+    .steps li { margin: .2rem 0; }
+    #tag { font-size: .82rem; color: #666; margin-bottom: .9rem; min-height: 1.2em; }
+    .controls { display: flex; align-items: center; gap: .8rem; margin-bottom: .6rem; }
+    #flash-btn {
+      padding: .55rem 1.8rem; font-size: .95rem; font-weight: 600;
+      background: #0969da; color: #fff; border: none; border-radius: 6px;
+      cursor: pointer; transition: background .15s; white-space: nowrap;
+    }
+    #flash-btn:hover:not(:disabled) { background: #0860ca; }
+    #flash-btn:disabled { opacity: .45; cursor: not-allowed; }
+    #flash-btn.success { background: #1a7f37; }
+    #reconnect-btn {
+      display: none; padding: .55rem 1.2rem; font-size: .9rem; font-weight: 600;
+      background: #9a6700; color: #fff; border: none; border-radius: 6px;
+      cursor: pointer; transition: background .15s; white-space: nowrap;
+    }
+    #reconnect-btn:hover { background: #7d5400; }
+    #status { font-size: .88rem; color: #444; flex: 1; }
+    #status.err { color: #cf222e; font-weight: 500; }
+    progress {
+      display: block; width: 100%; height: 5px;
+      accent-color: #0969da; border-radius: 4px; margin-bottom: .8rem;
+    }
+    #log {
+      background: #0d1117; color: #7ee787;
+      font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+      font-size: .74rem; line-height: 1.55;
+      padding: .75rem 1rem; min-height: 160px; max-height: 400px;
+      overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+      border-radius: 6px;
+    }
+    #log .dim  { color: #484f58; }
+    #log .warn { color: #d29922; }
+    #log .err  { color: #f85149; }
+    footer { margin-top: 1.2rem; font-size: .78rem; color: #999; }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+
+  <h2>Radxa ROCK 4D — UEFI Flash</h2>
+  <p class="subtitle">
+    Flashes <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">edk2-rk3576</a>
+    UEFI firmware to SPI NOR.
+    Requires Chrome or Edge (WebUSB). No drivers needed on Linux / macOS.
+  </p>
+
+  <ol class="steps">
+    <li>Hold the <strong>MaskROM button</strong>, plug in USB-C, then release</li>
+    <li>Click <strong>Flash UEFI</strong> and pick the Rockchip device from the browser prompt</li>
+    <li>After the loader is sent, click <strong>Reconnect Device</strong> and pick the device again</li>
+    <li>Wait for <em>Flash complete</em> — the board reboots automatically</li>
+  </ol>
+
+  <div id="tag"></div>
+
+  <div class="controls">
+    <button id="flash-btn" disabled>Flash UEFI</button>
+    <button id="reconnect-btn">Reconnect Device</button>
+    <span id="status">Loading…</span>
+  </div>
+
+  <progress id="prog" value="0" max="100"></progress>
+  <div id="log" aria-live="polite"></div>
+
+  <footer>
+    Firmware: <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">gahingwoo/edk2-rk3576</a>
+  </footer>
+
+  <!--
+    Step 1: install the Cross-Origin Isolation Service Worker on first visit.
+    This adds COOP + COEP headers to same-origin responses, enabling SharedArrayBuffer.
+    SharedArrayBuffer lets the Emscripten libusb patch use Atomics.waitAsync instead
+    of a polling fallback, which keeps thread-local state intact across ASYNCIFY
+    suspend/resume — fixing the val.h pthread_equal assertion abort.
+    On first visit the SW installs and the page reloads automatically (< 1 s).
+  -->
+  <script>
+    if (!self.crossOriginIsolated && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./coi-serviceworker.js', { scope: './' })
+        .then(() => location.reload())
+        .catch((err) => console.warn('SW registration failed:', err));
+    }
+  </script>
+
+  <script type="module">
+    import { createFlashWorker } from './src/proxy.js?v=WASM_HASH';
+
+    const REPO       = 'gahingwoo/edk2-rk3576';
+    const FW_URL     = `https://raw.githubusercontent.com/${REPO}/main/rock4d-spi-edk2.img`;
+    const TAG_API    = `https://api.github.com/repos/${REPO}/releases/latest`;
+
+    // Absolute URLs required so the Worker script can resolve them correctly.
+    // The 'WASM_HASH' string is replaced by CI (sha256sum first-8-chars) for cache-busting.
+    const WORKER_URL = new URL('./src/worker.js?v=WASM_HASH',          location.href).href;
+    const MODULE_URL = new URL('./dist/rkdeveloptool.js?v=WASM_HASH',  location.href).href;
+    const WASM_URL   = new URL('./dist/rkdeveloptool.wasm?v=WASM_HASH', location.href).href;
+
+    const btn          = document.getElementById('flash-btn');
+    const reconnectBtn = document.getElementById('reconnect-btn');
+    const stat  = document.getElementById('status');
+    const prog  = document.getElementById('prog');
+    const logEl = document.getElementById('log');
+
+    // Main-thread sleep helper (no need to round-trip to the Worker).
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    function setStatus(msg, cls = '') { stat.textContent = msg; stat.className = cls; }
+    function setProgress(pct) { prog.value = pct; }
+
+    function log(text, cls = '') {
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = text + '\n';
+      logEl.appendChild(span);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Guard: if SW not yet active (first ever visit), wait for the reload.
+    if (!self.crossOriginIsolated) {
+      setStatus('Installing isolation layer — page will reload…');
+      // The inline <script> above already started registration; just wait.
+      throw new Error('not-isolated');
+    }
+
+    // Guard: WebUSB required
+    if (!navigator.usb) {
+      setStatus('WebUSB not supported — open in Chrome or Edge.', 'err');
+      throw new Error('no-webusb');
+    }
+
+    // Show latest firmware tag (non-blocking)
+    fetch(TAG_API)
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(d => {
+        if (d?.tag_name) document.getElementById('tag').textContent = `Firmware: ${d.tag_name}`;
+      });
+
+    // Pre-warm WASM in Worker on page load
+    setStatus('Loading WASM…');
+    log('Initializing rkdeveloptool WASM in Worker…', 'dim');
+
+    const ANSI_RE = /\x1b\[[\d;]*[A-Za-z]/g;
+    function stripAnsi(s) { return s.replace(ANSI_RE, ''); }
+
+    function onStdout(text) {
+      text = stripAnsi(text);
+      if (!text.trim()) return;
+      log(text);
+      // Parse "Write LBA from file (N%)" progress lines
+      const m = text.match(/\((\d+)%\)/);
+      if (m) setProgress(+m[1]);
+    }
+    // Mirror rktool-webusb: track USB connect/disconnect state
+    let usbConnected = false;
+    navigator.usb.addEventListener('connect', (e) => {
+      if (e.device.vendorId === 0x2207) usbConnected = true;
+    });
+    navigator.usb.addEventListener('disconnect', (e) => {
+      if (e.device.vendorId === 0x2207) usbConnected = false;
+    });
+    let rk = null;
+    createFlashWorker({
+      workerUrl: WORKER_URL,
+      moduleUrl: MODULE_URL,
+      wasmUrl:   WASM_URL,
+      onStdout,
+      onStderr: (text) => { text = stripAnsi(text); if (text.trim()) log(text, 'warn'); },
+    })
+    .then(w => {
+      rk = w;
+      log('Ready.', 'dim');
+      setStatus('Ready');
+      btn.disabled = false;
+    })
+    .catch(err => {
+      log('WASM init failed: ' + err.message, 'err');
+      setStatus('Init failed: ' + err.message, 'err');
+    });
+
+    // ── Flash flow ────────────────────────────────────────────────────────────
+    btn.addEventListener('click', async () => {
+      if (!rk) return;
+
+      btn.disabled  = true;
+      btn.className = '';
+      btn.textContent = 'Flashing…';
+      setProgress(0);
+      logEl.innerHTML = '';
+
+      let loaderMount = null;
+      let fwMount     = null;
+
+      try {
+        // ① Start downloading immediately in the background so the downloads
+        //   can overlap with the time the user spends in the device picker.
+        log('Fetching rk3576_spl_loader.bin…', 'dim');
+        log(`Fetching ${REPO} rock4d-spi-edk2.img (16 MB)…`, 'dim');
+        const loaderFetch = fetch('./rk3576_spl_loader.bin').then(r => {
+          if (!r.ok) throw new Error(`Loader HTTP ${r.status}`);
+          return r.blob();
+        });
+        const fwFetch = fetch(FW_URL).then(r => {
+          if (!r.ok) throw new Error(`Firmware HTTP ${r.status}`);
+          return r.blob();
+        });
+
+        // ② Request USB device (MUST be in user-gesture context, main thread only).
+        //   The user picks the device while downloads are running in the background.
+        setStatus('Select the Rockchip USB device from the browser prompt…');
+        const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x2207 }] });
+        usbConnected = true;
+        // device.serialNumber is populated in Loader mode, empty in MaskROM
+        const isMaskrom = !device.serialNumber;
+        const modeName = isMaskrom ? 'MaskROM' : 'Loader';
+        log(`USB device: ${device.productName || 'Rockchip'} (PID 0x${device.productId.toString(16)}) — ${modeName}`);
+
+        // ③ Await downloads (usually already complete by now)
+        setStatus('Waiting for downloads…');
+        const [loaderBlob, fwBlob] = await Promise.all([loaderFetch, fwFetch]);
+        log(`Loader:   ${(loaderBlob.size / 1024).toFixed(0)} KB`);
+        log(`Firmware: ${(fwBlob.size / 1024 / 1024).toFixed(1)} MB`);
+
+        // ④ Mount blobs into WASM WORKERFS (zero-copy, reads from Blob lazily)
+        log('Mounting files into WASM VFS…', 'dim');
+        loaderMount = await rk.mountBlob('loader.bin',   loaderBlob);
+        fwMount     = await rk.mountBlob('firmware.img', fwBlob);
+
+        if (isMaskrom) {
+          // ⑤ DownloadBoot
+          setStatus('Sending loader (db)…');
+          log('\n$ rkdeveloptool db loader.bin');
+          const db = await rk.run(['db', loaderMount.path]);
+          if (db.exitCode !== 0) throw new Error(`DownloadBoot failed (exit ${db.exitCode})`);
+
+          // ⑥ Loader uploaded — device is rebooting and will re-enumerate.
+          //    WebUSB requires a fresh requestDevice() user gesture to get a
+          //    usable handle to the new Loader-mode device, so we always show
+          //    the reconnect button here rather than trying to poll getDevices()
+          //    (which returns a stale handle that libusb cannot open).
+          log('Loader sent. Waiting for device to reboot…', 'dim');
+          log('Reconnect the USB cable if needed, then click "Reconnect Device".', 'warn');
+          setStatus('Reconnect device…');
+          reconnectBtn.style.display = 'inline-block';
+          try {
+            await new Promise((resolve, reject) => {
+              reconnectBtn.onclick = async () => {
+                try {
+                  await navigator.usb.requestDevice({ filters: [{ vendorId: 0x2207 }] });
+                  resolve();
+                } catch (e) { reject(e); }
+              };
+            });
+          } finally {
+            reconnectBtn.style.display = 'none';
+            reconnectBtn.onclick = null;
+          }
+          log('Device selected.', 'dim');
+        } else {
+          log('Device already in Loader mode.', 'dim');
+        }
+
+        // ⑦ WriteLBA — streams firmware.img to SPI NOR starting at LBA 0
+        setStatus('Writing firmware (wl)…');
+        log('\n$ rkdeveloptool wl 0 firmware.img');
+        const wl = await rk.run(['wl', '0', fwMount.path]);
+        if (wl.exitCode !== 0) throw new Error(`WriteLBA failed (exit ${wl.exitCode})`);
+
+        // ⑧ Reset device
+        log('\n$ rkdeveloptool rd');
+        await rk.run(['rd']);
+
+        setProgress(100);
+        setStatus('Flash complete — device is rebooting!');
+        log('\nDone! The board will boot into UEFI.');
+        btn.textContent = 'Flash again';
+        btn.className   = 'success';
+        btn.disabled    = false;
+
+      } catch (err) {
+        log('\n' + err.message, 'err');
+        setStatus(err.message, 'err');
+        btn.textContent = 'Flash UEFI';
+        btn.disabled    = false;
+      } finally {
+        // Always unmount VFS entries to free resources
+        if (loaderMount) await rk.umount(loaderMount).catch(() => {});
+        if (fwMount)     await rk.umount(fwMount).catch(() => {});
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Clone rkdeveloptool (GPL v2) source and its libusb patches (LGPL derivative).
+      # We only use the C++ source and patches — NOT jjm2473's JS wrapper code.
+      - name: Clone rkdeveloptool source & patches
+        run: |
+          git clone --depth=1 https://github.com/jjm2473/rktool-webusb.git _rktool
+          cd _rktool
+          git submodule update --init --depth=1 rkdeveloptool
+
+      # Download libusb 1.0.29 (LGPL 2.1) and apply the Emscripten-specific patches.
+      - name: Download & patch libusb 1.0.29
+        run: |
+          mkdir -p _rktool/ref
+          curl -fsSL https://github.com/libusb/libusb/releases/download/v1.0.29/libusb-1.0.29.tar.bz2 \
+            | tar -xj -C _rktool/ref
+          cd _rktool/ref/libusb-1.0.29
+          for p in ../../patches/libusb/*.patch; do patch -p1 < "$p"; done
+          cd ../../rkdeveloptool
+          for p in ../patches/rkdeveloptool/*.patch; do patch -p1 < "$p"; done
+
+      - name: Setup Emscripten 3.1.48
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.48
+
+      # Build libusb as a static WASM library.
+      #
+      # The "val accessed from wrong thread" assertion in val.h is caused by
+      # C++20 coroutines in emscripten_webusb.cpp: when co_await suspends and
+      # _emval_coro_resume() resumes it, pthread_self() no longer matches the
+      # thread stored in the val, triggering:
+      #   assert(pthread_equal(thread, pthread_self()))
+      #
+      # With coi-serviceworker.js providing SharedArrayBuffer, libusb's
+      # 001-fix-hangs.patch uses Atomics.waitAsync (not the polling fallback),
+      # which keeps ASYNCIFY thread-local state intact — so the assertion
+      # should PASS.  Do NOT add -DNDEBUG: disabling the assert masks a
+      # different emval use-after-free bug that surfaces next.
+      # Instead, ensure SharedArrayBuffer is available (coi-serviceworker.js)
+      # and set up the WASM filesystem correctly (config.ini, log/, cwd=/tmp).
+      - name: Build libusb for WASM
+        run: |
+          mkdir -p _rktool/ref/libusb-1.0.29/build-wasm
+          cd _rktool/ref/libusb-1.0.29/build-wasm
+          emconfigure ../configure \
+            --host=wasm32-unknown-emscripten \
+            --disable-shared --enable-static --disable-udev
+          # libusb configure.ac tests whether emcc accepts -pthread and, if so,
+          # sets THREAD_CFLAGS=-pthread in the Makefile.  On Linux CI emcc does
+          # accept -pthread, which makes the compiler define _REENTRANT.  That
+          # enables the pthread_equal() assertion in emscripten/val.h (line 400)
+          # which fires after ASYNCIFY suspend/resume because pthread_self() no
+          # longer matches the stored thread pointer.  Strip the flag so the
+          # assertion is not compiled in — exactly what happens on macOS where
+          # emcc rejects -pthread under -Werror and THREAD_CFLAGS is left empty.
+          find . -name 'Makefile' | xargs sed -i 's/ -pthread/ -matomics/g'
+          emmake make -j$(nproc)
+
+      - name: Build rkdeveloptool WASM
+        run: |
+          RKTOOL=$PWD/_rktool
+          LIBUSB_A=$RKTOOL/ref/libusb-1.0.29/build-wasm/libusb/.libs/libusb-1.0.a
+          LIBUSB_INC=$RKTOOL/ref/libusb-1.0.29/libusb
+          mkdir -p wasm-build dist
+
+          # Use our own CMakeLists.wasm.txt (does not call build_wasm.sh,
+          # so no dependency on macOS-only 'crc32' command).
+          cp CMakeLists.wasm.txt wasm-build/CMakeLists.txt
+          emcmake cmake \
+            -S wasm-build -B wasm-build/build \
+            -DRKTOOL_ROOT=$RKTOOL \
+            -DLIBUSB_STATIC_LIB=$LIBUSB_A \
+            -DLIBUSB_INCLUDE_DIR=$LIBUSB_INC \
+            -DDIST_DIR=$PWD/dist \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build wasm-build/build --parallel $(nproc)
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/dist _site/src
+
+          # WASM binary + JS glue
+          cp dist/rkdeveloptool.js   _site/dist/
+          cp dist/rkdeveloptool.wasm _site/dist/
+
+          # Our own JS files (Worker, proxy — written from scratch, no jjm2473 code)
+          cp src/worker.js _site/src/
+          cp src/proxy.js  _site/src/
+
+          # Cross-Origin Isolation Service Worker (enables SharedArrayBuffer)
+          cp coi-serviceworker.js _site/
+
+          # Static assets
+          cp index.html            _site/
+          cp rk3576_spl_loader.bin _site/
+
+          # Cache-busting: replace 'WASM_HASH' placeholder in all .html and .js files
+          # with the first 8 chars of the WASM binary's sha256 hash.
+          # Using sha256sum (not crc32, which is macOS-only) for Linux CI compatibility.
+          WASM_HASH=$(sha256sum _site/dist/rkdeveloptool.wasm | cut -c1-8)
+          echo "WASM hash prefix: $WASM_HASH"
+          find _site -name '*.html' -o -name '*.js' \
+            | xargs sed -i "s/WASM_HASH/${WASM_HASH}/g"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
