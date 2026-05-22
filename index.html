@@ -58,6 +58,35 @@
     #log .err  { color: #f85149; }
     footer { margin-top: 1.2rem; font-size: .78rem; color: #999; }
     footer a { color: inherit; }
+    .custom-section {
+      margin-top: 1.2rem; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: .7rem 1rem;
+    }
+    .custom-section summary {
+      font-size: .88rem; font-weight: 600; cursor: pointer; user-select: none;
+      color: #444;
+    }
+    .custom-section summary:hover { color: #1a1a1a; }
+    .dropzone {
+      margin: .65rem 0 .5rem; border: 2px dashed #d0d7de; border-radius: 4px;
+      padding: .75rem 1rem; text-align: center; font-size: .82rem; color: #666;
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.dragover { border-color: #6639ba; background: #f6f0ff; }
+    .dropzone.has-file { border-color: #1a7f37; color: #1a7f37; border-style: solid; }
+    .risk-warning {
+      font-size: .8rem; color: #7d2000; background: #fff7ed;
+      border: 1px solid #fdba74; border-radius: 4px;
+      padding: .5rem .75rem; margin-bottom: .5rem; line-height: 1.55;
+    }
+    .risk-warning strong { color: #b45309; }
+    .risk-check {
+      display: flex; align-items: flex-start; gap: .45rem;
+      font-size: .82rem; margin-bottom: .65rem; cursor: pointer;
+    }
+    .risk-check input { margin-top: .18rem; flex-shrink: 0; cursor: pointer; }
+    #btn-custom { background: #b91c1c; padding: .45rem 1.3rem; font-size: .88rem; }
+    #btn-custom:hover:not(:disabled) { background: #991b1b; }
   </style>
 </head>
 <body>
@@ -87,6 +116,26 @@
 
   <progress id="prog" value="0" max="100"></progress>
   <div id="log" aria-live="polite"></div>
+
+  <details class="custom-section">
+    <summary>Flash custom image…</summary>
+    <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Select firmware image">
+      Drop .img / .bin here, or click to browse
+      <input type="file" id="custom-file" accept=".img,.bin,application/octet-stream" style="display:none">
+    </div>
+    <div class="risk-warning">
+      <strong>Warning — read before proceeding.</strong><br>
+      This writes the selected file raw to SPI NOR starting at offset 0, overwriting the
+      entire boot flash. An incompatible or corrupt image will make the board unbootable.
+      Recovery requires a SPI flash programmer (e.g. CH341A) soldered directly to the
+      flash chip. <strong>There is no undo.</strong>
+    </div>
+    <label class="risk-check">
+      <input type="checkbox" id="risk-ack">
+      I understand — an incompatible image will brick the board and requires hardware recovery
+    </label>
+    <button id="btn-custom" class="flash-btn" disabled>Flash Custom Image</button>
+  </details>
 
   <footer>
     UEFI: <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">gahingwoo/edk2-rk3576</a>
@@ -139,10 +188,42 @@
 
     const btnUefi      = document.getElementById('btn-uefi');
     const btnUboot     = document.getElementById('btn-uboot');
+    const btnCustom    = document.getElementById('btn-custom');
     const reconnectBtn = document.getElementById('reconnect-btn');
     const stat         = document.getElementById('status');
     const prog         = document.getElementById('prog');
     const logEl        = document.getElementById('log');
+    const dropzone     = document.getElementById('dropzone');
+    const fileInput    = document.getElementById('custom-file');
+    const riskAck      = document.getElementById('risk-ack');
+
+    let customFile = null;
+
+    function updateCustomBtn() {
+      btnCustom.disabled = !(customFile && riskAck.checked && rk && !flashing);
+    }
+
+    function setCustomFile(file) {
+      if (!file) return;
+      customFile = file;
+      dropzone.textContent = `✓ ${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+      // Re-append the hidden file input so the dropzone still works
+      dropzone.appendChild(fileInput);
+      dropzone.classList.add('has-file');
+      updateCustomBtn();
+    }
+
+    dropzone.addEventListener('click',     () => fileInput.click());
+    dropzone.addEventListener('keydown',   (e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+    fileInput.addEventListener('change',   () => setCustomFile(fileInput.files[0]));
+    dropzone.addEventListener('dragover',  (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', ()  => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop',      (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      setCustomFile(e.dataTransfer.files[0]);
+    });
+    riskAck.addEventListener('change', updateCustomBtn);
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -185,6 +266,7 @@
     }
 
     let rk = null;
+    let flashing = false;
     createFlashWorker({
       workerUrl: WORKER_URL, moduleUrl: MODULE_URL, wasmUrl: WASM_URL,
       onStdout,
@@ -195,6 +277,7 @@
       log('Ready.', 'dim');
       setStatus('Ready');
       btnUefi.disabled = btnUboot.disabled = false;
+      updateCustomBtn();
     })
     .catch(err => {
       log('WASM init failed: ' + err.message, 'err');
@@ -203,9 +286,10 @@
 
     // ── Shared flash flow ─────────────────────────────────────────────────────
     async function doFlash(target, triggerBtn) {
-      if (!rk) return;
+      if (!rk || flashing) return;
 
-      btnUefi.disabled = btnUboot.disabled = true;
+      flashing = true;
+      btnUefi.disabled = btnUboot.disabled = btnCustom.disabled = true;
       triggerBtn.className = 'flash-btn';
       triggerBtn.textContent = 'Flashing…';
       setProgress(0);
@@ -215,17 +299,20 @@
       let fwMount     = null;
 
       try {
-        // ① Kick off downloads immediately; they run while the user picks a device.
+        // ① Kick off downloads while the user picks a device.
+        //    For custom images target.fwBlob is already in memory — skip fetch.
         log('Fetching rk3576_spl_loader.bin…', 'dim');
-        log(`Fetching ${target.fwDesc}…`, 'dim');
+        if (!target.fwBlob) log(`Fetching ${target.fwDesc}…`, 'dim');
         const loaderFetch = fetch('./rk3576_spl_loader.bin').then(r => {
           if (!r.ok) throw new Error(`Loader HTTP ${r.status}`);
           return r.blob();
         });
-        const fwFetch = fetch(target.fwUrl).then(r => {
-          if (!r.ok) throw new Error(`Firmware HTTP ${r.status}`);
-          return r.blob();
-        });
+        const fwFetch = target.fwBlob
+          ? Promise.resolve(target.fwBlob)
+          : fetch(target.fwUrl).then(r => {
+              if (!r.ok) throw new Error(`Firmware HTTP ${r.status}`);
+              return r.blob();
+            });
 
         // ② requestDevice() must be called synchronously inside a user gesture.
         setStatus('Select the Rockchip USB device from the browser prompt…');
@@ -292,12 +379,16 @@
         triggerBtn.textContent = 'Flash again';
         triggerBtn.className   = 'flash-btn success';
         btnUefi.disabled = btnUboot.disabled = false;
+        flashing = false;
+        updateCustomBtn();
 
       } catch (err) {
         log('\n' + err.message, 'err');
         setStatus(err.message, 'err');
         triggerBtn.textContent = `Flash ${target.label}`;
         btnUefi.disabled = btnUboot.disabled = false;
+        flashing = false;
+        updateCustomBtn();
       } finally {
         if (loaderMount) await rk.umount(loaderMount).catch(() => {});
         if (fwMount)     await rk.umount(fwMount).catch(() => {});
@@ -306,6 +397,15 @@
 
     btnUefi.addEventListener ('click', () => doFlash(TARGETS.uefi,  btnUefi));
     btnUboot.addEventListener('click', () => doFlash(TARGETS.uboot, btnUboot));
+    btnCustom.addEventListener('click', () => {
+      if (!customFile) return;
+      doFlash({
+        label:   customFile.name,
+        fwBlob:  customFile,
+        fwDesc:  customFile.name,
+        doneMsg: `Done! ${customFile.name} written to SPI NOR.`,
+      }, btnCustom);
+    });
   </script>
 </body>
 </html>
