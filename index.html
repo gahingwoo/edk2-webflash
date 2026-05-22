@@ -124,15 +124,14 @@
       <input type="file" id="custom-file" accept=".img,.bin,application/octet-stream" style="display:none">
     </div>
     <div class="risk-warning">
-      <strong>Warning — read before proceeding.</strong><br>
-      This writes the selected file raw to SPI NOR starting at offset 0, overwriting the
-      entire boot flash. An incompatible or corrupt image will make the board unbootable.
-      Recovery requires a SPI flash programmer (e.g. CH341A) soldered directly to the
-      flash chip. <strong>There is no undo.</strong>
+      <strong>Warning:</strong> This overwrites SPI NOR at offset&nbsp;0.
+      An incompatible image will prevent normal boot.
+      Recovery: hold the <strong>Maskrom</strong> button while powering on to force
+      USB recovery mode, then re-flash via this tool.
     </div>
     <label class="risk-check">
       <input type="checkbox" id="risk-ack">
-      I understand — an incompatible image will brick the board and requires hardware recovery
+      I understand — an incompatible image will prevent boot until recovered via Maskrom mode
     </label>
     <button id="btn-custom" class="flash-btn" disabled>Flash Custom Image</button>
   </details>
