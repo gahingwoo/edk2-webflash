@@ -113,8 +113,9 @@ jobs:
 
           # Static assets
           cp index.html            _site/
-          cp rk3576_spl_loader.bin _site/
-          cp rock4d-spi-uboot.img  _site/
+          cp rk3576_spl_loader.bin   _site/
+          cp rock4d-spi-uboot.img   _site/
+          cp cm5io-sdcard-uboot.img _site/
 
           # Cache-busting: replace 'WASM_HASH' placeholder in all .html and .js files
           # with the first 8 chars of the WASM binary's sha256 hash.

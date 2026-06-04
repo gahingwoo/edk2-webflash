@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ROCK 4D — SPI Flash</title>
+  <title>Radxa RK3576 — Firmware Flash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -13,8 +13,17 @@
       color: #1a1a1a; line-height: 1.5;
     }
     h2 { font-size: 1.35rem; margin-bottom: .2rem; }
-    .subtitle { font-size: .85rem; color: #666; margin-bottom: 1.4rem; }
+    .subtitle { font-size: .85rem; color: #666; margin-bottom: 1rem; }
     .subtitle a { color: inherit; }
+    .device-selector { display: flex; gap: .5rem; margin-bottom: 1rem; }
+    .device-btn {
+      padding: .35rem 1rem; font-size: .88rem; border-radius: 20px;
+      border: 1px solid #d0d7de; background: #fff; cursor: pointer;
+      font-weight: 500; color: #1a1a1a; transition: all .15s;
+    }
+    .device-btn.active { background: #0969da; color: #fff; border-color: #0969da; }
+    .device-btn:hover:not(.active):not(:disabled) { border-color: #0969da; color: #0969da; }
+    .device-btn:disabled { opacity: .45; cursor: not-allowed; }
     .steps {
       background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
       padding: .8rem 1rem .8rem 2rem; margin-bottom: 1.4rem; font-size: .88rem;
@@ -91,14 +100,20 @@
 </head>
 <body>
 
-  <h2>Radxa ROCK 4D — SPI Flash</h2>
+  <h2>Radxa RK3576 — Firmware Flash</h2>
   <p class="subtitle">
     Flash <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">edk2-rk3576</a> UEFI
-    or mainline U-Boot to SPI NOR.
+    or mainline U-Boot to SPI NOR / SD card.
     Requires Chrome or Edge (WebUSB). No drivers needed on Linux / macOS.
   </p>
 
+  <div class="device-selector" role="group" aria-label="Select board">
+    <button class="device-btn active" data-device="rock4d">ROCK 4D</button>
+    <button class="device-btn" data-device="cm5io">CM5 IO</button>
+  </div>
+
   <ol class="steps">
+    <li>Select your board above</li>
     <li>Hold the <strong>MaskROM button</strong>, plug in USB-C, then release</li>
     <li>Click a flash button and pick the Rockchip device from the browser prompt</li>
     <li>After the loader is sent, click <strong>Reconnect Device</strong> and pick the device again</li>
@@ -124,7 +139,7 @@
       <input type="file" id="custom-file" accept=".img,.bin,application/octet-stream" style="display:none">
     </div>
     <div class="risk-warning">
-      <strong>Warning:</strong> This overwrites SPI NOR at offset&nbsp;0.
+      <strong>Warning:</strong> This overwrites storage at offset&nbsp;0.
       An incompatible image will prevent normal boot.
       Recovery: hold the <strong>Maskrom</strong> button while powering on to force
       USB recovery mode, then re-flash via this tool.
@@ -146,7 +161,7 @@
     Step 1: install the Cross-Origin Isolation Service Worker on first visit.
     This adds COOP + COEP headers to same-origin responses, enabling SharedArrayBuffer.
     SharedArrayBuffer lets the Emscripten libusb patch use Atomics.waitAsync instead
-    of a polling fallback, which keeps thread-local state intact across ASYNCIFY
+    of a polling fallback, which keeps ASYNCIFY fiber state intact across ASYNCIFY
     suspend/resume — fixing the val.h pthread_equal assertion abort.
     On first visit the SW installs and the page reloads automatically (< 1 s).
   -->
@@ -164,19 +179,41 @@
     const UEFI_REPO  = 'gahingwoo/edk2-rk3576';
     const TAG_API    = `https://api.github.com/repos/${UEFI_REPO}/releases/latest`;
 
-    // Flash targets ────────────────────────────────────────────────────────────
-    const TARGETS = {
-      uefi: {
-        label:   'UEFI',
-        fwUrl:   `https://raw.githubusercontent.com/${UEFI_REPO}/main/rock4d-spi-edk2.img`,
-        fwDesc:  `${UEFI_REPO} rock4d-spi-edk2.img`,
-        doneMsg: 'Done! The board will boot into UEFI.',
+    // Flash targets per device ────────────────────────────────────────────────
+    const DEVICES = {
+      rock4d: {
+        label: 'ROCK 4D',
+        targets: {
+          uefi: {
+            label:   'UEFI',
+            fwUrl:   `https://raw.githubusercontent.com/${UEFI_REPO}/main/rock4d-spi-edk2.img`,
+            fwDesc:  `${UEFI_REPO} rock4d-spi-edk2.img`,
+            doneMsg: 'Done! The board will boot into UEFI.',
+          },
+          uboot: {
+            label:   'U-Boot',
+            fwUrl:   './rock4d-spi-uboot.img',
+            fwDesc:  'rock4d-spi-uboot.img',
+            doneMsg: 'Done! The board will boot into mainline U-Boot.',
+          },
+        },
       },
-      uboot: {
-        label:   'U-Boot',
-        fwUrl:   './rock4d-spi-uboot.img',
-        fwDesc:  'rock4d-spi-uboot.img',
-        doneMsg: 'Done! The board will boot into mainline U-Boot.',
+      cm5io: {
+        label: 'CM5 IO',
+        targets: {
+          uefi: {
+            label:   'UEFI',
+            fwUrl:   `https://github.com/${UEFI_REPO}/releases/latest/download/cm5io-sdcard.img`,
+            fwDesc:  `${UEFI_REPO} cm5io-sdcard.img`,
+            doneMsg: 'Done! The board will boot into UEFI from SD card.',
+          },
+          uboot: {
+            label:   'U-Boot',
+            fwUrl:   './cm5io-sdcard-uboot.img',
+            fwDesc:  'cm5io-sdcard-uboot.img',
+            doneMsg: 'Done! The board will boot into mainline U-Boot from SD card.',
+          },
+        },
       },
     };
 
@@ -195,8 +232,23 @@
     const dropzone     = document.getElementById('dropzone');
     const fileInput    = document.getElementById('custom-file');
     const riskAck      = document.getElementById('risk-ack');
+    const deviceBtns   = document.querySelectorAll('.device-btn');
 
+    let currentDevice = 'rock4d';
     let customFile = null;
+
+    deviceBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (flashing) return;
+        deviceBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDevice = btn.dataset.device;
+      });
+    });
+
+    function setDeviceBtnsDisabled(disabled) {
+      deviceBtns.forEach(b => { b.disabled = disabled; });
+    }
 
     function updateCustomBtn() {
       btnCustom.disabled = !(customFile && riskAck.checked && rk && !flashing);
@@ -205,7 +257,7 @@
     function setCustomFile(file) {
       if (!file) return;
       customFile = file;
-      dropzone.textContent = `✓ ${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+      dropzone.textContent = `✓ ${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB`;
       // Re-append the hidden file input so the dropzone still works
       dropzone.appendChild(fileInput);
       dropzone.classList.add('has-file');
@@ -289,6 +341,7 @@
 
       flashing = true;
       btnUefi.disabled = btnUboot.disabled = btnCustom.disabled = true;
+      setDeviceBtnsDisabled(true);
       triggerBtn.className = 'flash-btn';
       triggerBtn.textContent = 'Flashing…';
       setProgress(0);
@@ -362,7 +415,7 @@
           log('Device already in Loader mode.', 'dim');
         }
 
-        // ⑦ WriteLBA — stream firmware image to SPI NOR at LBA 0
+        // ⑦ WriteLBA — stream firmware image to storage at LBA 0
         setStatus(`Writing ${target.label} firmware (wl)…`);
         log('\n$ rkdeveloptool wl 0 firmware.img');
         const wl = await rk.run(['wl', '0', fwMount.path]);
@@ -379,6 +432,7 @@
         triggerBtn.className   = 'flash-btn success';
         btnUefi.disabled = btnUboot.disabled = false;
         flashing = false;
+        setDeviceBtnsDisabled(false);
         updateCustomBtn();
 
       } catch (err) {
@@ -387,6 +441,7 @@
         triggerBtn.textContent = `Flash ${target.label}`;
         btnUefi.disabled = btnUboot.disabled = false;
         flashing = false;
+        setDeviceBtnsDisabled(false);
         updateCustomBtn();
       } finally {
         if (loaderMount) await rk.umount(loaderMount).catch(() => {});
@@ -394,15 +449,15 @@
       }
     }
 
-    btnUefi.addEventListener ('click', () => doFlash(TARGETS.uefi,  btnUefi));
-    btnUboot.addEventListener('click', () => doFlash(TARGETS.uboot, btnUboot));
+    btnUefi.addEventListener ('click', () => doFlash(DEVICES[currentDevice].targets.uefi,  btnUefi));
+    btnUboot.addEventListener('click', () => doFlash(DEVICES[currentDevice].targets.uboot, btnUboot));
     btnCustom.addEventListener('click', () => {
       if (!customFile) return;
       doFlash({
         label:   customFile.name,
         fwBlob:  customFile,
         fwDesc:  customFile.name,
-        doneMsg: `Done! ${customFile.name} written to SPI NOR.`,
+        doneMsg: `Done! ${customFile.name} written to storage.`,
       }, btnCustom);
     });
   </script>
