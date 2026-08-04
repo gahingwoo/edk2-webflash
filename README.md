@@ -73,3 +73,4 @@ GPL-2.0. See [LICENSE](LICENSE).
 | libusb 1.0.29 | LGPL-2.1 |
 | coi-serviceworker | MIT |
 | [edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576) firmware | MIT |
+
