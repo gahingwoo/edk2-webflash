@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The UEFI images are bundled at deploy time, so a new edk2-rk3576 release
+  # reaches the site on the next run.  Daily keeps that under a day.
+  schedule:
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -124,6 +128,30 @@ jobs:
           echo "WASM hash prefix: $WASM_HASH"
           find _site -name '*.html' -o -name '*.js' \
             | xargs sed -i "s/WASM_HASH/${WASM_HASH}/g"
+
+      # The UEFI images.  GitHub release downloads carry no CORS headers, so the
+      # page cannot fetch them from github.com; serve them from this origin
+      # like the loader and the U-Boot images.  Fixed names, so index.html does
+      # not change per release.  CM5-IO gets the eMMC image because
+      # `rkdeveloptool wl 0` writes the eMMC on that board.
+      - name: Bundle the latest edk2-rk3576 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REPO=gahingwoo/edk2-rk3576
+          TAG=$(gh release view --repo "$REPO" --json tagName -q .tagName)
+          mkdir -p _fw
+          gh release download "$TAG" --repo "$REPO" --dir _fw \
+            --pattern 'ROCK4D-spi-edk2-*.img' \
+            --pattern 'CM5IO-emmc-edk2-*.img' \
+            --pattern 'SHA256SUMS.txt'
+          ( cd _fw && sha256sum -c --ignore-missing SHA256SUMS.txt )
+          one() { set -- $1; [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "expected one match, got: $*"; exit 1; }; echo "$1"; }
+          cp "$(one '_fw/ROCK4D-spi-edk2-*.img')" _site/rock4d-spi-edk2.img
+          cp "$(one '_fw/CM5IO-emmc-edk2-*.img')" _site/cm5io-emmc-edk2.img
+          echo "$TAG" > _site/edk2-version.txt
+          echo "Bundled edk2-rk3576 $TAG"
 
       - uses: actions/upload-pages-artifact@v3
         with:

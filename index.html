@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Radxa RK3576 — Firmware Flash</title>
+  <title>RK3576 — Firmware Flash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -100,10 +100,10 @@
 </head>
 <body>
 
-  <h2>Radxa RK3576 — Firmware Flash</h2>
+  <h2>RK3576 — Firmware Flash</h2>
   <p class="subtitle">
     Flash <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">edk2-rk3576</a> UEFI
-    or mainline U-Boot to SPI NOR / SD card.
+    or mainline U-Boot: to SPI NOR on ROCK 4D, to eMMC on CM5-IO.
     Requires Chrome or Edge (WebUSB). No drivers needed on Linux / macOS.
   </p>
 
@@ -177,7 +177,11 @@
     import { createFlashWorker } from './src/proxy.js?v=WASM_HASH';
 
     const UEFI_REPO  = 'gahingwoo/edk2-rk3576';
-    const TAG_API    = `https://api.github.com/repos/${UEFI_REPO}/releases/latest`;
+    // The UEFI images are fetched from the latest edk2-rk3576 release at deploy
+    // time and served from this origin: GitHub release downloads carry no CORS
+    // headers, so a browser cannot fetch them directly.  edk2-version.txt
+    // records which release was bundled.
+    const FW_VERSION = './edk2-version.txt';
 
     // Flash targets per device ────────────────────────────────────────────────
     const DEVICES = {
@@ -186,8 +190,8 @@
         targets: {
           uefi: {
             label:   'UEFI',
-            fwUrl:   `https://raw.githubusercontent.com/${UEFI_REPO}/main/rock4d-spi-edk2.img`,
-            fwDesc:  `${UEFI_REPO} rock4d-spi-edk2.img`,
+            fwUrl:   './rock4d-spi-edk2.img',
+            fwDesc:  `${UEFI_REPO} ROCK 4D SPI image`,
             doneMsg: 'Done! The board will boot into UEFI.',
           },
           uboot: {
@@ -203,15 +207,15 @@
         targets: {
           uefi: {
             label:   'UEFI',
-            fwUrl:   `https://github.com/${UEFI_REPO}/releases/latest/download/cm5io-sdcard.img`,
-            fwDesc:  `${UEFI_REPO} cm5io-sdcard.img`,
-            doneMsg: 'Done! The board will boot into UEFI from SD card.',
+            fwUrl:   './cm5io-emmc-edk2.img',
+            fwDesc:  `${UEFI_REPO} CM5-IO eMMC image`,
+            doneMsg: 'Done! The board will boot into UEFI from eMMC.',
           },
           uboot: {
             label:   'U-Boot',
             fwUrl:   './cm5io-sdcard-uboot.img',
             fwDesc:  'cm5io-sdcard-uboot.img',
-            doneMsg: 'Done! The board will boot into mainline U-Boot from SD card.',
+            doneMsg: 'Done! The board will boot into mainline U-Boot from eMMC.',
           },
         },
       },
@@ -297,10 +301,10 @@
       throw new Error('no-webusb');
     }
 
-    // Show latest UEFI tag (non-blocking)
-    fetch(TAG_API)
-      .then(r => r.ok ? r.json() : null).catch(() => null)
-      .then(d => { if (d?.tag_name) document.getElementById('tag').textContent = `UEFI: ${d.tag_name}`; });
+    // Show the bundled UEFI release (non-blocking)
+    fetch(FW_VERSION)
+      .then(r => r.ok ? r.text() : null).catch(() => null)
+      .then(t => { if (t?.trim()) document.getElementById('tag').textContent = `UEFI: ${t.trim()}`; });
 
     setStatus('Loading WASM…');
     log('Initializing rkdeveloptool WASM in Worker…', 'dim');
