@@ -6,7 +6,12 @@ html, body { height: 100%; }
 .pf-v6-c-masthead__logo { --pf-v6-c-masthead__logo--Width: auto; }
 .brand { text-decoration: none; }
 .brand-name { font-size: var(--pf-t--global--font--size--lg); color: var(--pf-t--global--text--color--regular); white-space: nowrap; }
-.pf-v6-c-masthead__content.masthead-actions { justify-content: flex-end; gap: var(--pf-t--global--spacer--md); }
+.pf-v6-c-masthead__content.masthead-actions { justify-content: flex-end; align-items: center; gap: var(--pf-t--global--spacer--sm); }
+/* Both actions are full buttons, so their text sits on one line. The link
+   leaves at phone width, where the two do not fit beside the name; the Write
+   step links to the same page. */
+.masthead-docs { display: none; }
+@media (min-width: 48rem) { .masthead-docs { display: inline-flex; } }
 
 /* The wizard fills the page. PatternFly rules a line above it, which is for
    content above; with no notice there is none. */
@@ -42,3 +47,7 @@ html, body { height: 100%; }
 
 [hidden] { display: none !important; }
 :focus-visible { outline-color: var(--pf-t--global--focus-ring--color--default); }
+
+/* The name sits on the buttons' centre line. */
+.pf-v6-c-masthead__main { align-self: center; }
+.brand-name { line-height: 1; display: block; }
