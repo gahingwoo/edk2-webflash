@@ -1,469 +1,178 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RK3576 — Firmware Flash</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      max-width: 620px; margin: 2.5rem auto; padding: 0 1.25rem;
-      color: #1a1a1a; line-height: 1.5;
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RK3576 firmware flash</title>
+  <meta name="description" content="Write edk2-rk3576 UEFI firmware or mainline U-Boot to a Rockchip RK3576 board over USB, from the browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='2' fill='%230066cc'/%3E%3Cpath d='M11 3v4m5-4v4m5-4v4M11 25v4m5-4v4m5-4v4M3 11h4m-4 5h4m-4 5h4m18-10h4m-4 5h4m-4 5h4' stroke='%230066cc' stroke-width='2'/%3E%3C/svg%3E">
+  <script>
+    // Cross-origin isolation through a service worker: GitHub Pages cannot
+    // send COOP/COEP headers, and the USB code needs SharedArrayBuffer. The
+    // first visit registers the worker and reloads once.
+    if (!self.crossOriginIsolated && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./coi-serviceworker.js', { scope: './' }).then(function () {
+        var k = 'coi-reloaded';
+        try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch (e) { return; }
+        location.reload();
+      }, function (e) { console.warn('service worker:', e); });
     }
-    h2 { font-size: 1.35rem; margin-bottom: .2rem; }
-    .subtitle { font-size: .85rem; color: #666; margin-bottom: 1rem; }
-    .subtitle a { color: inherit; }
-    .device-selector { display: flex; gap: .5rem; margin-bottom: 1rem; }
-    .device-btn {
-      padding: .35rem 1rem; font-size: .88rem; border-radius: 20px;
-      border: 1px solid #d0d7de; background: #fff; cursor: pointer;
-      font-weight: 500; color: #1a1a1a; transition: all .15s;
-    }
-    .device-btn.active { background: #0969da; color: #fff; border-color: #0969da; }
-    .device-btn:hover:not(.active):not(:disabled) { border-color: #0969da; color: #0969da; }
-    .device-btn:disabled { opacity: .45; cursor: not-allowed; }
-    .steps {
-      background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
-      padding: .8rem 1rem .8rem 2rem; margin-bottom: 1.4rem; font-size: .88rem;
-    }
-    .steps li { margin: .2rem 0; }
-    #tag { font-size: .82rem; color: #666; margin-bottom: .9rem; min-height: 1.2em; }
-    .controls { display: flex; align-items: center; gap: .8rem; margin-bottom: .6rem; }
-    .flash-btn {
-      padding: .55rem 1.6rem; font-size: .95rem; font-weight: 600;
-      color: #fff; border: none; border-radius: 6px;
-      cursor: pointer; transition: background .15s; white-space: nowrap;
-    }
-    .flash-btn:disabled { opacity: .45; cursor: not-allowed; }
-    .flash-btn.success  { background: #1a7f37 !important; }
-    #btn-uefi  { background: #0969da; }
-    #btn-uefi:hover:not(:disabled)  { background: #0860ca; }
-    #btn-uboot { background: #6639ba; }
-    #btn-uboot:hover:not(:disabled) { background: #5a31a8; }
-    #reconnect-btn {
-      display: none; padding: .55rem 1.2rem; font-size: .9rem; font-weight: 600;
-      background: #9a6700; color: #fff; border: none; border-radius: 6px;
-      cursor: pointer; transition: background .15s; white-space: nowrap;
-    }
-    #reconnect-btn:hover { background: #7d5400; }
-    #status { font-size: .88rem; color: #444; flex: 1; }
-    #status.err { color: #cf222e; font-weight: 500; }
-    progress {
-      display: block; width: 100%; height: 5px;
-      accent-color: #0969da; border-radius: 4px; margin-bottom: .8rem;
-    }
-    #log {
-      background: #0d1117; color: #7ee787;
-      font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
-      font-size: .74rem; line-height: 1.55;
-      padding: .75rem 1rem; min-height: 160px; max-height: 400px;
-      overflow-y: auto; white-space: pre-wrap; word-break: break-all;
-      border-radius: 6px;
-    }
-    #log .dim  { color: #484f58; }
-    #log .warn { color: #d29922; }
-    #log .err  { color: #f85149; }
-    footer { margin-top: 1.2rem; font-size: .78rem; color: #999; }
-    footer a { color: inherit; }
-    .custom-section {
-      margin-top: 1.2rem; border: 1px solid #d0d7de; border-radius: 6px;
-      padding: .7rem 1rem;
-    }
-    .custom-section summary {
-      font-size: .88rem; font-weight: 600; cursor: pointer; user-select: none;
-      color: #444;
-    }
-    .custom-section summary:hover { color: #1a1a1a; }
-    .dropzone {
-      margin: .65rem 0 .5rem; border: 2px dashed #d0d7de; border-radius: 4px;
-      padding: .75rem 1rem; text-align: center; font-size: .82rem; color: #666;
-      cursor: pointer; transition: border-color .15s, background .15s;
-    }
-    .dropzone:hover, .dropzone.dragover { border-color: #6639ba; background: #f6f0ff; }
-    .dropzone.has-file { border-color: #1a7f37; color: #1a7f37; border-style: solid; }
-    .risk-warning {
-      font-size: .8rem; color: #7d2000; background: #fff7ed;
-      border: 1px solid #fdba74; border-radius: 4px;
-      padding: .5rem .75rem; margin-bottom: .5rem; line-height: 1.55;
-    }
-    .risk-warning strong { color: #b45309; }
-    .risk-check {
-      display: flex; align-items: flex-start; gap: .45rem;
-      font-size: .82rem; margin-bottom: .65rem; cursor: pointer;
-    }
-    .risk-check input { margin-top: .18rem; flex-shrink: 0; cursor: pointer; }
-    #btn-custom { background: #b91c1c; padding: .45rem 1.3rem; font-size: .88rem; }
-    #btn-custom:hover:not(:disabled) { background: #991b1b; }
-  </style>
+  </script>
+  <script src="src/theme.js?v=WASM_HASH"></script>
+  <link rel="stylesheet" href="assets/patternfly/patternfly-flash.css?v=WASM_HASH">
+  <link rel="stylesheet" href="assets/app.css?v=WASM_HASH">
 </head>
 <body>
-
-  <h2>RK3576 — Firmware Flash</h2>
-  <p class="subtitle">
-    Flash <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">edk2-rk3576</a> UEFI
-    or mainline U-Boot: to SPI NOR on ROCK 4D, to eMMC on CM5-IO.
-    Requires Chrome or Edge (WebUSB). No drivers needed on Linux / macOS.
-  </p>
-
-  <div class="device-selector" role="group" aria-label="Select board">
-    <button class="device-btn active" data-device="rock4d">ROCK 4D</button>
-    <button class="device-btn" data-device="cm5io">CM5 IO</button>
-  </div>
-
-  <ol class="steps">
-    <li>Select your board above</li>
-    <li>Hold the <strong>MaskROM button</strong>, plug in USB-C, then release</li>
-    <li>Click a flash button and pick the Rockchip device from the browser prompt</li>
-    <li>After the loader is sent, click <strong>Reconnect Device</strong> and pick the device again</li>
-    <li>Wait for <em>Flash complete</em> — the board reboots automatically</li>
-  </ol>
-
-  <div id="tag"></div>
-
-  <div class="controls">
-    <button id="btn-uefi"  class="flash-btn" disabled>Flash UEFI</button>
-    <button id="btn-uboot" class="flash-btn" disabled>Flash U-Boot</button>
-    <button id="reconnect-btn">Reconnect Device</button>
-    <span id="status">Loading…</span>
-  </div>
-
-  <progress id="prog" value="0" max="100"></progress>
-  <div id="log" aria-live="polite"></div>
-
-  <details class="custom-section">
-    <summary>Flash custom image…</summary>
-    <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Select firmware image">
-      Drop .img / .bin here, or click to browse
-      <input type="file" id="custom-file" accept=".img,.bin,application/octet-stream" style="display:none">
+<div class="pf-v6-c-page">
+  <header class="pf-v6-c-masthead pf-m-display-inline">
+    <div class="pf-v6-c-masthead__main">
+      <div class="pf-v6-c-masthead__brand">
+        <span class="pf-v6-c-masthead__logo brand"><span class="brand-name">RK3576 firmware flash</span></span>
+      </div>
     </div>
-    <div class="risk-warning">
-      <strong>Warning:</strong> This overwrites storage at offset&nbsp;0.
-      An incompatible image will prevent normal boot.
-      Recovery: hold the <strong>Maskrom</strong> button while powering on to force
-      USB recovery mode, then re-flash via this tool.
+    <div class="pf-v6-c-masthead__content masthead-actions">
+      <a class="pf-v6-c-button pf-m-secondary" href="https://github.com/gahingwoo/edk2-rk3576/releases/latest"><span class="pf-v6-c-button__text">Releases</span></a>
     </div>
-    <label class="risk-check">
-      <input type="checkbox" id="risk-ack">
-      I understand — an incompatible image will prevent boot until recovered via Maskrom mode
-    </label>
-    <button id="btn-custom" class="flash-btn" disabled>Flash Custom Image</button>
-  </details>
+  </header>
 
-  <footer>
-    UEFI: <a href="https://github.com/gahingwoo/edk2-rk3576" target="_blank" rel="noopener">gahingwoo/edk2-rk3576</a>
-    &nbsp;·&nbsp;
-    Flasher: <a href="https://github.com/gahingwoo/edk2-webflash" target="_blank" rel="noopener">gahingwoo/edk2-webflash</a>
-  </footer>
+  <div class="pf-v6-c-page__main-container">
+    <main class="pf-v6-c-page__main" tabindex="-1" id="main-content">
 
-  <!--
-    Step 1: install the Cross-Origin Isolation Service Worker on first visit.
-    This adds COOP + COEP headers to same-origin responses, enabling SharedArrayBuffer.
-    SharedArrayBuffer lets the Emscripten libusb patch use Atomics.waitAsync instead
-    of a polling fallback, which keeps ASYNCIFY fiber state intact across ASYNCIFY
-    suspend/resume — fixing the val.h pthread_equal assertion abort.
-    On first visit the SW installs and the page reloads automatically (< 1 s).
-  -->
-  <script>
-    if (!self.crossOriginIsolated && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./coi-serviceworker.js', { scope: './' })
-        .then(() => location.reload())
-        .catch((err) => console.warn('SW registration failed:', err));
-    }
-  </script>
+      <section class="pf-v6-c-page__main-section" id="notices" hidden>
+        <div class="pf-v6-c-page__main-body" id="notices-body"></div>
+      </section>
 
-  <script type="module">
-    import { createFlashWorker } from './src/proxy.js?v=WASM_HASH';
+      <section class="pf-v6-c-page__main-wizard pf-m-fill" aria-label="Write firmware">
+          <div class="pf-v6-c-wizard">
+            <button class="pf-v6-c-wizard__toggle" id="wizard-toggle" type="button" aria-label="Steps" aria-expanded="false">
+              <span class="pf-v6-c-wizard__toggle-list">
+                <span class="pf-v6-c-wizard__toggle-list-item"><span class="pf-v6-c-wizard__toggle-num" id="toggle-num">1</span> <span id="toggle-name">Board</span></span>
+              </span>
+              <span class="pf-v6-c-wizard__toggle-icon"><svg class="pf-v6-svg" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" role="img" width="1em" height="1em"><path d="M18.71 5.29a.996.996 0 0 0-1.41 0l-7.29 7.29-7.3-7.29a.987.987 0 0 0-1.41-.02.987.987 0 0 0-.02 1.41l.02.02 7.65 7.65c.29.29.68.44 1.06.44s.77-.15 1.06-.44l7.65-7.65a.996.996 0 0 0 0-1.41Z"/></svg></span>
+            </button>
+            <div class="pf-v6-c-wizard__outer-wrap">
+              <div class="pf-v6-c-wizard__inner-wrap">
+                <nav class="pf-v6-c-wizard__nav" id="wizard-nav" aria-label="Steps">
+                  <ol class="pf-v6-c-wizard__nav-list" role="list">
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="0"><span class="pf-v6-c-wizard__nav-link-main">Board</span></button></li>
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="1"><span class="pf-v6-c-wizard__nav-link-main">Firmware</span></button></li>
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="2"><span class="pf-v6-c-wizard__nav-link-main">Write</span></button></li>
+                  </ol>
+                </nav>
+                <div class="pf-v6-c-wizard__main" tabindex="-1" id="wizard-main">
+                  <div class="pf-v6-c-wizard__main-body">
 
-    const UEFI_REPO  = 'gahingwoo/edk2-rk3576';
-    // The UEFI images are fetched from the latest edk2-rk3576 release at deploy
-    // time and served from this origin: GitHub release downloads carry no CORS
-    // headers, so a browser cannot fetch them directly.  edk2-version.txt
-    // records which release was bundled.
-    const FW_VERSION = './edk2-version.txt';
+                    <div class="step pf-v6-l-stack pf-m-gutter" data-step="0">
+                      <div class="pf-v6-l-stack__item">
+                        <h1 class="pf-v6-c-title pf-m-h2">Board</h1>
+                        <p class="step-lead">Choose the board to write to.</p>
+                      </div>
+                      <div class="pf-v6-l-stack__item">
+                        <table class="pf-v6-c-table pf-m-grid-md pf-m-compact" role="grid" aria-label="Boards">
+                          <thead class="pf-v6-c-table__thead">
+                            <tr class="pf-v6-c-table__tr" role="row">
+                              <th class="pf-v6-c-table__th" scope="col"><span class="pf-v6-screen-reader">Select</span></th>
+                              <th class="pf-v6-c-table__th" scope="col">Board</th>
+                              <th class="pf-v6-c-table__th" scope="col">Written to</th>
+                              <th class="pf-v6-c-table__th" scope="col">UEFI firmware</th>
+                            </tr>
+                          </thead>
+                          <tbody class="pf-v6-c-table__tbody" role="rowgroup" id="board-rows"></tbody>
+                        </table>
+                      </div>
+                      <div class="pf-v6-l-stack__item">
+                        <p class="muted" id="release-note"></p>
+                      </div>
+                    </div>
 
-    // Flash targets per device ────────────────────────────────────────────────
-    const DEVICES = {
-      rock4d: {
-        label: 'ROCK 4D',
-        targets: {
-          uefi: {
-            label:   'UEFI',
-            fwUrl:   './rock4d-spi-edk2.img',
-            fwDesc:  `${UEFI_REPO} ROCK 4D SPI image`,
-            doneMsg: 'Done! The board will boot into UEFI.',
-          },
-          uboot: {
-            label:   'U-Boot',
-            fwUrl:   './rock4d-spi-uboot.img',
-            fwDesc:  'rock4d-spi-uboot.img',
-            doneMsg: 'Done! The board will boot into mainline U-Boot.',
-          },
-        },
-      },
-      cm5io: {
-        label: 'CM5 IO',
-        targets: {
-          uefi: {
-            label:   'UEFI',
-            fwUrl:   './cm5io-emmc-edk2.img',
-            fwDesc:  `${UEFI_REPO} CM5-IO eMMC image`,
-            doneMsg: 'Done! The board will boot into UEFI from eMMC.',
-          },
-          uboot: {
-            label:   'U-Boot',
-            fwUrl:   './cm5io-sdcard-uboot.img',
-            fwDesc:  'cm5io-sdcard-uboot.img',
-            doneMsg: 'Done! The board will boot into mainline U-Boot from eMMC.',
-          },
-        },
-      },
-    };
+                    <div class="step pf-v6-l-stack pf-m-gutter" data-step="1" hidden>
+                      <div class="pf-v6-l-stack__item">
+                        <h1 class="pf-v6-c-title pf-m-h2">Firmware</h1>
+                        <p class="step-lead" id="firmware-lead"></p>
+                      </div>
+                      <div class="pf-v6-l-stack__item">
+                        <form class="pf-v6-c-form" novalidate onsubmit="return false">
+                          <div class="pf-v6-c-form__group" role="radiogroup" aria-label="Firmware">
+                            <div class="pf-v6-c-form__group-control pf-m-stack" id="target-radios"></div>
+                          </div>
+                        </form>
+                      </div>
+                      <div class="pf-v6-l-stack__item file-row" id="file-row" hidden>
+                        <button class="pf-v6-c-button pf-m-secondary" type="button" id="file-button"><span class="pf-v6-c-button__text">Choose a file</span></button>
+                        <span class="detail" id="file-name">No file chosen</span>
+                        <input type="file" id="file-input" accept=".img,.bin,application/octet-stream" hidden>
+                      </div>
+                    </div>
 
-    // Absolute URLs — 'WASM_HASH' is replaced by CI for cache-busting.
-    const WORKER_URL = new URL('./src/worker.js?v=WASM_HASH',           location.href).href;
-    const MODULE_URL = new URL('./dist/rkdeveloptool.js?v=WASM_HASH',   location.href).href;
-    const WASM_URL   = new URL('./dist/rkdeveloptool.wasm?v=WASM_HASH', location.href).href;
+                    <div class="step pf-v6-l-stack pf-m-gutter" data-step="2" hidden>
+                      <div class="pf-v6-l-stack__item">
+                        <h1 class="pf-v6-c-title pf-m-h2">Write</h1>
+                        <p class="step-lead" id="write-lead">Nothing has been written yet. Check this before you go on.</p>
+                      </div>
+                      <div class="pf-v6-l-stack__item">
+                        <dl class="pf-v6-c-description-list pf-m-horizontal pf-m-compact" id="review"></dl>
+                      </div>
+                      <div class="pf-v6-l-stack__item" id="erase-alert"></div>
+                      <div class="pf-v6-l-stack__item pf-v6-c-content" id="maskrom-block">
+                        <h2 class="pf-v6-c-content--h3">Put the board into MaskROM</h2>
+                        <ol class="pf-v6-c-content--ol" id="maskrom-steps"></ol>
+                        <p class="pf-v6-c-content--small" id="maskrom-more"></p>
+                      </div>
+                      <div class="pf-v6-l-stack__item" id="ack-block" hidden>
+                        <label class="pf-v6-c-check" for="ack">
+                          <input class="pf-v6-c-check__input" type="checkbox" id="ack">
+                          <span class="pf-v6-c-check__label">This file is an image for this board and this storage.</span>
+                        </label>
+                      </div>
+                      <div class="pf-v6-l-stack__item" id="run-block" hidden>
+                        <div class="pf-v6-l-stack pf-m-gutter">
+                          <div class="pf-v6-l-stack__item">
+                            <div class="pf-v6-c-progress pf-m-sm" id="progress">
+                              <div class="pf-v6-c-progress__description" id="progress-title">Starting</div>
+                              <div class="pf-v6-c-progress__status" aria-hidden="true"><span class="pf-v6-c-progress__measure" id="progress-measure">0%</span></div>
+                              <div class="pf-v6-c-progress__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="progress-title" id="progress-bar">
+                                <div class="pf-v6-c-progress__indicator" id="progress-indicator" style="width:0%"></div>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="pf-v6-l-stack__item" id="run-alert"></div>
+                          <div class="pf-v6-l-stack__item">
+                            <div class="pf-v6-c-expandable-section" id="log-section">
+                              <div class="pf-v6-c-expandable-section__toggle">
+                                <button class="pf-v6-c-button pf-m-link" type="button" id="log-toggle" aria-expanded="false" aria-controls="log-content">
+                                  <span class="pf-v6-c-button__icon pf-m-start"><span class="pf-v6-c-expandable-section__toggle-icon"><svg class="pf-v6-svg" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" role="img" width="1em" height="1em"><path d="M18.71 5.29a.996.996 0 0 0-1.41 0l-7.29 7.29-7.3-7.29a.987.987 0 0 0-1.41-.02.987.987 0 0 0-.02 1.41l.02.02 7.65 7.65c.29.29.68.44 1.06.44s.77-.15 1.06-.44l7.65-7.65a.996.996 0 0 0 0-1.41Z"/></svg></span></span>
+                                  <span class="pf-v6-c-button__text">Log</span>
+                                </button>
+                              </div>
+                              <div class="pf-v6-c-expandable-section__content log" id="log-content" role="region" aria-labelledby="log-toggle" hidden>
+                                <div class="pf-v6-c-code-block"><div class="pf-v6-c-code-block__content"><pre class="pf-v6-c-code-block__pre"><code class="pf-v6-c-code-block__code" id="log" aria-live="polite"></code></pre></div></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-    const btnUefi      = document.getElementById('btn-uefi');
-    const btnUboot     = document.getElementById('btn-uboot');
-    const btnCustom    = document.getElementById('btn-custom');
-    const reconnectBtn = document.getElementById('reconnect-btn');
-    const stat         = document.getElementById('status');
-    const prog         = document.getElementById('prog');
-    const logEl        = document.getElementById('log');
-    const dropzone     = document.getElementById('dropzone');
-    const fileInput    = document.getElementById('custom-file');
-    const riskAck      = document.getElementById('risk-ack');
-    const deviceBtns   = document.querySelectorAll('.device-btn');
-
-    let currentDevice = 'rock4d';
-    let customFile = null;
-
-    deviceBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (flashing) return;
-        deviceBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentDevice = btn.dataset.device;
-      });
-    });
-
-    function setDeviceBtnsDisabled(disabled) {
-      deviceBtns.forEach(b => { b.disabled = disabled; });
-    }
-
-    function updateCustomBtn() {
-      btnCustom.disabled = !(customFile && riskAck.checked && rk && !flashing);
-    }
-
-    function setCustomFile(file) {
-      if (!file) return;
-      customFile = file;
-      dropzone.textContent = `✓ ${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB`;
-      // Re-append the hidden file input so the dropzone still works
-      dropzone.appendChild(fileInput);
-      dropzone.classList.add('has-file');
-      updateCustomBtn();
-    }
-
-    dropzone.addEventListener('click',     () => fileInput.click());
-    dropzone.addEventListener('keydown',   (e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
-    fileInput.addEventListener('change',   () => setCustomFile(fileInput.files[0]));
-    dropzone.addEventListener('dragover',  (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-    dropzone.addEventListener('dragleave', ()  => dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop',      (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('dragover');
-      setCustomFile(e.dataTransfer.files[0]);
-    });
-    riskAck.addEventListener('change', updateCustomBtn);
-
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    function setStatus(msg, cls = '') { stat.textContent = msg; stat.className = cls; }
-    function setProgress(pct) { prog.value = pct; }
-    function log(text, cls = '') {
-      const span = document.createElement('span');
-      if (cls) span.className = cls;
-      span.textContent = text + '\n';
-      logEl.appendChild(span);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    if (!self.crossOriginIsolated) {
-      setStatus('Installing isolation layer — page will reload…');
-      throw new Error('not-isolated');
-    }
-    if (!navigator.usb) {
-      setStatus('WebUSB not supported — open in Chrome or Edge.', 'err');
-      throw new Error('no-webusb');
-    }
-
-    // Show the bundled UEFI release (non-blocking)
-    fetch(FW_VERSION)
-      .then(r => r.ok ? r.text() : null).catch(() => null)
-      .then(t => { if (t?.trim()) document.getElementById('tag').textContent = `UEFI: ${t.trim()}`; });
-
-    setStatus('Loading WASM…');
-    log('Initializing rkdeveloptool WASM in Worker…', 'dim');
-
-    const ANSI_RE = /\x1b\[[\d;]*[A-Za-z]/g;
-    const stripAnsi = (s) => s.replace(ANSI_RE, '');
-
-    function onStdout(text) {
-      text = stripAnsi(text);
-      if (!text.trim()) return;
-      log(text);
-      const m = text.match(/\((\d+)%\)/);
-      if (m) setProgress(+m[1]);
-    }
-
-    let rk = null;
-    let flashing = false;
-    createFlashWorker({
-      workerUrl: WORKER_URL, moduleUrl: MODULE_URL, wasmUrl: WASM_URL,
-      onStdout,
-      onStderr: (text) => { text = stripAnsi(text); if (text.trim()) log(text, 'warn'); },
-    })
-    .then(w => {
-      rk = w;
-      log('Ready.', 'dim');
-      setStatus('Ready');
-      btnUefi.disabled = btnUboot.disabled = false;
-      updateCustomBtn();
-    })
-    .catch(err => {
-      log('WASM init failed: ' + err.message, 'err');
-      setStatus('Init failed: ' + err.message, 'err');
-    });
-
-    // ── Shared flash flow ─────────────────────────────────────────────────────
-    async function doFlash(target, triggerBtn) {
-      if (!rk || flashing) return;
-
-      flashing = true;
-      btnUefi.disabled = btnUboot.disabled = btnCustom.disabled = true;
-      setDeviceBtnsDisabled(true);
-      triggerBtn.className = 'flash-btn';
-      triggerBtn.textContent = 'Flashing…';
-      setProgress(0);
-      logEl.innerHTML = '';
-
-      let loaderMount = null;
-      let fwMount     = null;
-
-      try {
-        // ① Kick off downloads while the user picks a device.
-        //    For custom images target.fwBlob is already in memory — skip fetch.
-        log('Fetching rk3576_spl_loader.bin…', 'dim');
-        if (!target.fwBlob) log(`Fetching ${target.fwDesc}…`, 'dim');
-        const loaderFetch = fetch('./rk3576_spl_loader.bin').then(r => {
-          if (!r.ok) throw new Error(`Loader HTTP ${r.status}`);
-          return r.blob();
-        });
-        const fwFetch = target.fwBlob
-          ? Promise.resolve(target.fwBlob)
-          : fetch(target.fwUrl).then(r => {
-              if (!r.ok) throw new Error(`Firmware HTTP ${r.status}`);
-              return r.blob();
-            });
-
-        // ② requestDevice() must be called synchronously inside a user gesture.
-        setStatus('Select the Rockchip USB device from the browser prompt…');
-        const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x2207 }] });
-        const isMaskrom = !device.serialNumber;
-        log(`USB device: ${device.productName || 'Rockchip'} (PID 0x${device.productId.toString(16)}) — ${isMaskrom ? 'MaskROM' : 'Loader'}`);
-
-        // ③ Await downloads (usually already done by now)
-        setStatus('Waiting for downloads…');
-        const [loaderBlob, fwBlob] = await Promise.all([loaderFetch, fwFetch]);
-        log(`Loader:   ${(loaderBlob.size / 1024).toFixed(0)} KB`);
-        log(`Firmware: ${(fwBlob.size / 1024 / 1024).toFixed(1)} MB`);
-
-        // ④ Mount blobs into WASM WORKERFS (zero-copy)
-        log('Mounting files into WASM VFS…', 'dim');
-        loaderMount = await rk.mountBlob('loader.bin',   loaderBlob);
-        fwMount     = await rk.mountBlob('firmware.img', fwBlob);
-
-        if (isMaskrom) {
-          // ⑤ DownloadBoot
-          setStatus('Sending loader (db)…');
-          log('\n$ rkdeveloptool db loader.bin');
-          const db = await rk.run(['db', loaderMount.path]);
-          if (db.exitCode !== 0) throw new Error(`DownloadBoot failed (exit ${db.exitCode})`);
-
-          // ⑥ Device reboots into Loader mode. WebUSB invalidates the old handle
-          //    on disconnect, and requestDevice() needs a fresh user gesture —
-          //    it cannot be called from an async continuation. Show the button.
-          log('Loader sent. Waiting for device to reboot…', 'dim');
-          log('Reconnect the USB cable if needed, then click "Reconnect Device".', 'warn');
-          setStatus('Reconnect device…');
-          reconnectBtn.style.display = 'inline-block';
-          try {
-            await new Promise((resolve, reject) => {
-              reconnectBtn.onclick = async () => {
-                try {
-                  await navigator.usb.requestDevice({ filters: [{ vendorId: 0x2207 }] });
-                  resolve();
-                } catch (e) { reject(e); }
-              };
-            });
-          } finally {
-            reconnectBtn.style.display = 'none';
-            reconnectBtn.onclick = null;
-          }
-          log('Device selected.', 'dim');
-        } else {
-          log('Device already in Loader mode.', 'dim');
-        }
-
-        // ⑦ WriteLBA — stream firmware image to storage at LBA 0
-        setStatus(`Writing ${target.label} firmware (wl)…`);
-        log('\n$ rkdeveloptool wl 0 firmware.img');
-        const wl = await rk.run(['wl', '0', fwMount.path]);
-        if (wl.exitCode !== 0) throw new Error(`WriteLBA failed (exit ${wl.exitCode})`);
-
-        // ⑧ Reset
-        log('\n$ rkdeveloptool rd');
-        await rk.run(['rd']);
-
-        setProgress(100);
-        setStatus('Flash complete — device is rebooting!');
-        log('\n' + target.doneMsg);
-        triggerBtn.textContent = 'Flash again';
-        triggerBtn.className   = 'flash-btn success';
-        btnUefi.disabled = btnUboot.disabled = false;
-        flashing = false;
-        setDeviceBtnsDisabled(false);
-        updateCustomBtn();
-
-      } catch (err) {
-        log('\n' + err.message, 'err');
-        setStatus(err.message, 'err');
-        triggerBtn.textContent = `Flash ${target.label}`;
-        btnUefi.disabled = btnUboot.disabled = false;
-        flashing = false;
-        setDeviceBtnsDisabled(false);
-        updateCustomBtn();
-      } finally {
-        if (loaderMount) await rk.umount(loaderMount).catch(() => {});
-        if (fwMount)     await rk.umount(fwMount).catch(() => {});
-      }
-    }
-
-    btnUefi.addEventListener ('click', () => doFlash(DEVICES[currentDevice].targets.uefi,  btnUefi));
-    btnUboot.addEventListener('click', () => doFlash(DEVICES[currentDevice].targets.uboot, btnUboot));
-    btnCustom.addEventListener('click', () => {
-      if (!customFile) return;
-      doFlash({
-        label:   customFile.name,
-        fwBlob:  customFile,
-        fwDesc:  customFile.name,
-        doneMsg: `Done! ${customFile.name} written to storage.`,
-      }, btnCustom);
-    });
-  </script>
+                  </div>
+                </div>
+              </div>
+              <footer class="pf-v6-c-wizard__footer">
+                <div class="pf-v6-c-action-list">
+                  <div class="pf-v6-c-action-list__group">
+                    <div class="pf-v6-c-action-list__item"><button class="pf-v6-c-button pf-m-secondary" type="button" id="back" disabled><span class="pf-v6-c-button__text">Back</span></button></div>
+                    <div class="pf-v6-c-action-list__item"><button class="pf-v6-c-button pf-m-primary" type="button" id="next"><span class="pf-v6-c-button__text">Next</span></button></div>
+                  </div>
+                  <div class="pf-v6-c-action-list__group">
+                    <div class="pf-v6-c-action-list__item"><span class="footer-note" id="footer-note"></span></div>
+                  </div>
+                </div>
+              </footer>
+            </div>
+          </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script type="module" src="src/app.js?v=WASM_HASH"></script>
 </body>
 </html>

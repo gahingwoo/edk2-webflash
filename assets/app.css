@@ -1,0 +1,44 @@
+/* Page CSS on top of PatternFly. Layout comes from PatternFly's Page, Wizard,
+   Stack and Form; what is here is only what PatternFly has no option for. */
+html, body { height: 100%; }
+
+/* Masthead: a text brand, kept on one line, and the links at the far end. */
+.pf-v6-c-masthead__logo { --pf-v6-c-masthead__logo--Width: auto; }
+.brand { text-decoration: none; }
+.brand-name { font-size: var(--pf-t--global--font--size--lg); color: var(--pf-t--global--text--color--regular); white-space: nowrap; }
+.pf-v6-c-masthead__content.masthead-actions { justify-content: flex-end; gap: var(--pf-t--global--spacer--md); }
+
+/* The wizard fills the page. PatternFly rules a line above it, which is for
+   content above; with no notice there is none. */
+#notices[hidden] + .pf-v6-c-page__main-wizard { --pf-v6-c-page__main-wizard--BorderBlockStartWidth: 0; }
+
+/* Step content: regular-weight headings and a readable measure. */
+.step { max-width: 56rem; }
+.step[hidden] { display: none; }
+.step .pf-v6-c-title { font-weight: var(--pf-t--global--font--weight--body--default); }
+.step-lead, .muted { color: var(--pf-t--global--text--color--subtle); }
+.muted { font-size: var(--pf-t--global--font--size--sm); }
+.detail { font-family: var(--pf-t--global--font--family--mono); font-size: var(--pf-t--global--font--size--sm); word-break: break-all; }
+
+/* The file row under "A file from this computer" lines up with the radio's label. */
+.file-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--pf-t--global--spacer--md); padding-inline-start: 1.375rem; }
+.file-row[hidden] { display: none; }
+
+/* The log scrolls inside its block instead of growing the page. */
+.log .pf-v6-c-code-block__code { display: block; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-dim { color: var(--pf-t--global--text--color--subtle); }
+.log-warn { color: var(--pf-t--global--text--color--status--warning--default); }
+.log-err { color: var(--pf-t--global--text--color--status--danger--default); }
+
+/* The note beside the footer buttons takes its own line when there is no room. */
+.pf-v6-c-wizard__footer .pf-v6-c-action-list { flex-wrap: wrap; row-gap: var(--pf-t--global--spacer--sm); }
+.pf-v6-c-wizard__footer .pf-v6-c-action-list__group:last-child { flex: 1 1 14rem; }
+.pf-v6-c-wizard__footer .pf-v6-c-action-list__group:has(.footer-note:empty) { display: none; }
+.footer-note { color: var(--pf-t--global--text--color--subtle); font-size: var(--pf-t--global--font--size--sm); }
+
+@media (min-width: 48rem) {
+  .pf-v6-c-table td.nowrap-md { white-space: nowrap; }
+}
+
+[hidden] { display: none !important; }
+:focus-visible { outline-color: var(--pf-t--global--focus-ring--color--default); }

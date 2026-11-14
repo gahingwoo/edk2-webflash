@@ -1,0 +1,106 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>flash.js tests</title>
+<!-- Open through a web server (python3 -m http.server) and read the list.
+     Each line is PASS or FAIL; the last line is the count. -->
+<pre id="out"></pre>
+<script type="module">
+import { BOARDS, boardById, customTarget } from '../src/boards.js';
+import { prepare, runFlash } from '../src/flash.js';
+
+const MIB = 1048576;
+const out = document.getElementById('out');
+let failed = 0, passed = 0;
+function ok(cond, name) { cond ? passed++ : failed++; out.textContent += `${cond ? 'PASS' : 'FAIL'} ${name}\n`; }
+async function throws(fn, re, name) {
+  try { await fn(); ok(false, name + ' (did not throw)'); } catch (e) { ok(re.test(e.message), `${name}: ${e.message}`); }
+}
+
+// An image whose every 512-byte sector starts with its own number.
+function image(bytes) {
+  const buf = new Uint8Array(bytes);
+  const view = new DataView(buf.buffer);
+  for (let s = 0; s * 512 < bytes; s++) view.setUint32(s * 512, s, true);
+  return new Blob([buf]);
+}
+async function firstSector(blob) { return new DataView(await blob.slice(0, 4).arrayBuffer()).getUint32(0, true); }
+
+function fakes({ serial = '', dbExit = 0, wlExit = 0 } = {}) {
+  const calls = [], mounted = {};
+  return {
+    calls, mounted,
+    rk: {
+      mountBlob: async (name, blob) => { mounted[name] = blob; return { dir: '/m/' + name, path: '/m/' + name + '/' + name }; },
+      umount: async ({ dir }) => { calls.push('umount ' + dir); },
+      run: async (args) => { calls.push(args.join(' ')); return { exitCode: args[0] === 'db' ? dbExit : args[0] === 'wl' ? wlExit : 0 }; },
+    },
+    usb: { requestDevice: async () => { calls.push('requestDevice'); return { serialNumber: serial, productId: 0x350e, productName: '' }; } },
+    ui: { status() {}, log() {}, progress() {}, reconnect: async (request) => { calls.push('reconnect'); await request(); } },
+  };
+}
+
+const tspi = boardById('tspi3m'), cm5 = boardById('cm5io'), rock = boardById('rock4d');
+const img32 = image(32 * MIB), img16 = image(16 * MIB);
+const fetchBlob = async (url) => (url.includes('loader') ? new Blob([new Uint8Array(1000)]) : url.includes('rock4d') || url.includes('uboot') ? img16 : img32);
+
+// prepare()
+{
+  const t = tspi.targets.find((x) => x.id === 'uefi-keep');
+  const part = prepare(tspi, t, img32);
+  ok(part.size === 27264 * 512, 'TaishanPi firmware part is 27264 sectors');
+  ok(await firstSector(part) === 16384, 'TaishanPi firmware part starts at image sector 16384');
+  ok(t.lba === 16384, 'TaishanPi firmware part is written at sector 16384');
+  await throws(() => prepare(tspi, t, image(8 * MIB)), /shorter/, 'a short image is refused');
+}
+{
+  const t = cm5.targets.find((x) => x.id === 'uefi-keep');
+  const part = prepare(cm5, t, img32);
+  ok(part.size === 32 * MIB - 32768 && await firstSector(part) === 64 && t.lba === 64, 'CM5-IO firmware part: image from sector 64 to the end, written at sector 64');
+}
+for (const b of BOARDS) for (const t of b.targets) {
+  const whole = prepare(b, t, t.file.includes('rock4d') || t.file.includes('uboot') ? img16 : img32);
+  if (!t.slice) ok(t.lba === 0 && whole.size > 0, `${b.id}/${t.id}: whole image at sector 0`);
+}
+await throws(() => prepare(rock, customTarget(new File([new Uint8Array(17 * MIB)], 'big.img')), new Blob([new Uint8Array(17 * MIB)])), /does not fit/, 'ROCK 4D: a file larger than the SPI NOR is refused');
+await throws(() => prepare(cm5, cm5.targets[0], new Blob([])), /empty/, 'an empty image is refused');
+
+// runFlash()
+{
+  const f = fakes();
+  await runFlash({ ...f, fetchBlob, board: tspi, target: tspi.targets.find((x) => x.id === 'uefi-keep') });
+  ok(f.calls.join(' | ') === 'requestDevice | db /m/loader.bin/loader.bin | reconnect | requestDevice | wl 16384 /m/firmware.img/firmware.img | rd | umount /m/loader.bin | umount /m/firmware.img',
+    'MaskROM: db, second device prompt, wl at the target sector, rd: ' + f.calls.join(' | '));
+  ok(f.mounted['firmware.img'].size === 27264 * 512, 'MaskROM: only the firmware part is handed to wl');
+}
+{
+  const f = fakes({ serial: 'abc' });
+  await runFlash({ ...f, fetchBlob, board: rock, target: rock.targets[0] });
+  ok(f.calls.join(' | ').startsWith('requestDevice | wl 0 '), 'loader mode: no db, no second prompt');
+}
+{
+  const f = fakes({ dbExit: 1 });
+  await throws(() => runFlash({ ...f, fetchBlob, board: cm5, target: cm5.targets[0] }), /Nothing was written/, 'db failure stops the run');
+  ok(!f.calls.some((c) => c.startsWith('wl')), 'db failure: wl is never run');
+  ok(f.calls.filter((c) => c.startsWith('umount')).length === 2, 'db failure: both files are unmounted');
+}
+{
+  const f = fakes();
+  await throws(() => runFlash({ ...f, fetchBlob: async (u) => (u.includes('loader') ? new Blob([1]) : image(8 * MIB)), board: tspi, target: tspi.targets.find((x) => x.id === 'uefi-keep') }),
+    /shorter/, 'a short download stops the run');
+  ok(!f.calls.some((c) => c.startsWith('db') || c.startsWith('wl')), 'a short download: nothing is sent to the board');
+}
+{
+  const f = fakes({ wlExit: 2 });
+  await throws(() => runFlash({ ...f, fetchBlob, board: cm5, target: cm5.targets[0] }), /write it again/, 'wl failure is reported');
+  ok(!f.calls.includes('rd'), 'wl failure: the board is not reset');
+}
+{
+  const f = fakes();
+  const file = new File([new Uint8Array(2 * MIB)], 'mine.img');
+  await runFlash({ ...f, fetchBlob, board: cm5, target: customTarget(file) });
+  ok(f.mounted['firmware.img'] === file && f.calls.some((c) => c.startsWith('wl 0 ')), 'a custom file is written whole from sector 0');
+}
+
+out.textContent += `\n${passed} passed, ${failed} failed\n`;
+document.title = failed ? 'FAILED' : 'passed';
+</script>

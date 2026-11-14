@@ -1,65 +1,87 @@
 # edk2-webflash
 
 WebUSB flasher for [edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576) UEFI on Rockchip RK3576.
-Runs entirely in the browser — no app, no driver, no USB passthrough.
-Wraps [rkdeveloptool](https://github.com/rockchip-linux/rkdeveloptool) compiled to WASM via Emscripten.
+It runs in the browser, with no app to install and no USB passthrough.
+It wraps [rkdeveloptool](https://github.com/rockchip-linux/rkdeveloptool) compiled to WASM with Emscripten.
 
 **Live: https://flash.gahingwoo.com/**
 
-Requires Chrome or Edge (WebUSB). No drivers on Linux / macOS.
-Windows: install WinUSB for the device via [Zadig](https://zadig.akeo.ie/).
-
----
+Requires Chrome or Edge (WebUSB). No drivers on Linux and macOS.
+Windows: install WinUSB for the device with [Zadig](https://zadig.akeo.ie/).
 
 ## Usage
 
-1. Pick the board: **ROCK 4D** or **CM5 IO**
-2. Hold the **MaskROM button**, plug in USB-C, release
-3. Click **Flash UEFI** → pick the Rockchip device from the browser prompt
-4. Loader uploads, board reboots → click **Reconnect Device** → pick device again
-5. Firmware flashes, board reboots into UEFI
+The page is a three-step wizard.
 
-| Board | Written to | Image |
+1. **Board**: Radxa ROCK 4D, ArmSoM CM5-IO or LCKFB TaishanPi 3M.
+2. **Firmware**: one of the choices in the table below.
+3. **Write**: the page lists what will be written and where, and how to put
+   the board into MaskROM. Click **Connect and write** and pick the Rockchip
+   device from the browser prompt. The loader is sent and the board comes back
+   as a new USB device; click **Choose the board** and pick it again. The
+   image is written and the board is reset.
+
+| Board | Choice | Written |
 |---|---|---|
-| ROCK 4D | SPI NOR | `ROCK4D-spi-edk2-<ver>.img` from the latest edk2-rk3576 release |
-| CM5 IO | eMMC | `CM5IO-emmc-edk2-<ver>.img` from the latest edk2-rk3576 release |
+| ROCK 4D | UEFI firmware | `ROCK4D-spi-edk2-<ver>.img` to the SPI NOR, from sector 0 |
+| ROCK 4D | Mainline U-Boot | `rock4d-spi-uboot.img` to the SPI NOR, from sector 0 |
+| CM5-IO | UEFI firmware, whole image | `CM5IO-emmc-edk2-<ver>.img` to the eMMC, from sector 0 |
+| CM5-IO | UEFI firmware, keep the partitions | the same image from its sector 64 on, to sector 64 |
+| CM5-IO | Mainline U-Boot | `cm5io-sdcard-uboot.img` to the eMMC, from sector 0 |
+| TaishanPi 3M | UEFI firmware, whole image | `TaishanPi3M-emmc-edk2-<ver>.img` to the eMMC, from sector 0 |
+| TaishanPi 3M | UEFI firmware, keep the partitions | sectors 16384 to 43647 of the same image, to sector 16384 |
+| any | A file from this computer | the file, from sector 0 |
 
-**Flash U-Boot** writes mainline U-Boot instead. **Flash Custom Image** writes
-any image you pick from disk.
+The whole eMMC images carry a partition table, so they replace an installed
+system. "Keep the partitions" writes only the firmware and is for an eMMC that
+was set up with the whole image before; the offsets are the ones in
+edk2-rk3576's [FLASHING](https://edk2.gahingwoo.com/FLASHING.html). A file
+larger than the ROCK 4D's 16 MiB SPI NOR is refused.
 
-> **Why two device picks?**
-> After `DownloadBoot` the SoC resets and re-enumerates. WebUSB invalidates
-> the old handle on disconnect, and `requestDevice()` requires a user gesture
-> — it cannot be called from an async continuation. The button provides that gesture.
+The TaishanPi 3M has no MaskROM button: two pads marked `MSK` are shorted while
+powering on, or F4 is pressed during the boot countdown of a board that
+already runs this firmware.
 
----
+Why the device is picked twice: after `DownloadBoot` the SoC resets and
+re-enumerates. WebUSB drops the old handle, and `requestDevice()` has to be
+called from a click, which the second button provides.
 
 ## How it works
 
 ```
-index.html            UI + flash sequencer (main thread)
+index.html            the page: PatternFly 6 Page, Masthead and Wizard markup
+src/app.js            the wizard and what it shows (main thread)
+src/boards.js         boards, their choices, sectors and wording
+src/flash.js          the write sequence, with everything it touches passed in
 src/proxy.js          Promise-based Worker RPC wrapper
-src/worker.js         Dedicated Worker — WASM host, WORKERFS mount manager
+src/worker.js         Dedicated Worker: WASM host, WORKERFS mount manager
+src/theme.js          light or dark from localStorage.theme, else the system
+assets/app.css        page CSS on top of PatternFly
+assets/patternfly/    the PatternFly parts the page uses, built by build.sh
+scripts/bundle-firmware.sh   downloads the release images at deploy time
+tests/flash.test.html browser tests of src/flash.js against fakes
 dist/                 CI-built artefacts (not in tree)
   rkdeveloptool.js    Emscripten glue
   rkdeveloptool.wasm
 rock4d-spi-edk2.img   CI-bundled from the latest edk2-rk3576 release (not in tree)
 cm5io-emmc-edk2.img
-edk2-version.txt      which release was bundled; shown on the page
+tspi3m-emmc-edk2.img
+firmware.json         the release that was bundled and each image's own version
 coi-serviceworker.js  Retrofits COOP/COEP for SharedArrayBuffer on static hosts
 CMakeLists.wasm.txt   WASM build definition
 ```
 
-Flash sequence (MaskROM path):
+The write sequence (MaskROM path):
 
 ```
-① Fetch rk3576_spl_loader.bin + the board's image in parallel, same origin
-② requestDevice()  — user selects MaskROM-mode device
-③ Await downloads, mount Blobs into WASM WORKERFS
-④ rkdeveloptool db  — send SPL loader; SoC resets → Loader mode
-⑤ User clicks Reconnect Device → requestDevice() → Loader-mode handle
-⑥ rkdeveloptool wl 0  — stream the image: SPI NOR on ROCK 4D, eMMC on CM5 IO
-⑦ rkdeveloptool rd  — reset
+1. Fetch rk3576_spl_loader.bin and the board's image in parallel, same origin
+2. requestDevice(): the user selects the MaskROM-mode device
+3. Await the downloads, cut the part to write if the choice writes a part,
+   check sizes, mount the Blobs into WASM WORKERFS
+4. rkdeveloptool db: send the SPL loader; the SoC resets into loader mode
+5. The user clicks Choose the board: requestDevice() again
+6. rkdeveloptool wl <sector>: stream the image to the SPI NOR or the eMMC
+7. rkdeveloptool rd: reset
 ```
 
 **Threading model:** rkdeveloptool is compiled with ASYNCIFY (no pthreads).
@@ -67,7 +89,19 @@ The WASM module runs in a Dedicated Worker for WORKERFS access.
 `coi-serviceworker.js` enables `SharedArrayBuffer` so libusb can use
 `Atomics.waitAsync` instead of a spin-poll, keeping ASYNCIFY fiber state intact.
 
----
+## Working on the page
+
+Serve the repository root (`python3 -m http.server`) and open it at
+`http://localhost:8000/`; WebUSB and the service worker need localhost or
+HTTPS. `dist/` is built by CI: copy `rkdeveloptool.js` and `rkdeveloptool.wasm`
+from the live site into `dist/` to run the page locally.
+`tests/flash.test.html`, opened the same way, runs the write sequence against
+a fake tool and a fake USB device and prints PASS or FAIL for each check.
+
+The PatternFly CSS is assembled from the npm package by
+`assets/patternfly/build.sh`, which lists the components. To use another
+component, add it there and run the script again. Do not edit
+`patternfly-flash.css` by hand.
 
 ## Building
 
@@ -75,12 +109,11 @@ Requires Emscripten 3.1.48 and CMake. See [`.github/workflows/deploy.yml`](.gith
 
 The UEFI images are downloaded from the latest
 [edk2-rk3576 release](https://github.com/gahingwoo/edk2-rk3576/releases/latest)
-at deploy time, checked against its `SHA256SUMS.txt`, and served from this
-site. The page cannot fetch them from GitHub directly: release downloads carry
+at deploy time by `scripts/bundle-firmware.sh`, checked against its
+`SHA256SUMS.txt`, and served from this site. The page cannot fetch them from GitHub directly: release downloads carry
 no CORS headers. A new release therefore reaches the site on the next daily
 run, or at once with a manual run of the workflow.
 
----
 
 ## License
 
@@ -91,5 +124,6 @@ GPL-2.0. See [LICENSE](LICENSE).
 | rkdeveloptool | GPL-2.0 |
 | libusb 1.0.29 | LGPL-2.1 |
 | coi-serviceworker | MIT |
+| [PatternFly](https://www.patternfly.org/) 6 CSS and Red Hat fonts | MIT, OFL-1.1 |
 | [edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576) firmware | BSD-2-Clause-Patent |
 
