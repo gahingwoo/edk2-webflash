@@ -77,7 +77,7 @@ export const BOARDS = [
     maskromNote: 'A board that already runs this firmware gets there without the pads: press F4 during the boot countdown.',
     maskromLink: {
       text: 'Photo of the MSK pads',
-      href: 'https://github.com/gahingwoo/edk2-rk3576/releases/latest/download/TaishanPi3M-msk-pads.png',
+      href: 'tspi3m-msk-pads.png',
     },
     targets: [
       {

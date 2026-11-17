@@ -161,7 +161,7 @@ function renderReview() {
   $('erase-alert').innerHTML = alertHtml('warning', 'What this replaces', `<p>${esc(t.erases)}</p>`);
   $('maskrom-steps').innerHTML = b.maskrom.map((s) => `<li>${esc(s)}</li>`).join('');
   const link = (b.maskromNote ? esc(b.maskromNote) + ' ' : '')
-    + (b.maskromLink ? `<a href="${esc(b.maskromLink.href)}">${esc(b.maskromLink.text)}</a>. ` : '');
+    + (b.maskromLink ? `<a href="${esc(b.maskromLink.href)}" target="_blank" rel="noopener">${esc(b.maskromLink.text)}</a>. ` : '');
   $('maskrom-more').innerHTML = `${link}Linux and macOS need no driver. On Windows the device needs the WinUSB driver, installed with <a href="https://zadig.akeo.ie/">Zadig</a>. More in the <a href="https://edk2.gahingwoo.com/FLASHING.html">flashing instructions</a>.`;
   $('ack-block').hidden = state.targetId !== 'custom';
 }
