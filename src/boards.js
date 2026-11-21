@@ -17,13 +17,23 @@ const BUTTON_STEPS = [
   'Release the button.',
 ];
 
+// The ROCK 4D's USB-C port only supplies power (its data pins are not
+// connected); the download port is the USB-A port wired to the SoC's OTG
+// controller, with a USB-A to USB-A cable.
+const ROCK4D_STEPS = [
+  'Unplug the board from power.',
+  'Connect a USB-A to USB-A cable from the board\'s OTG USB-A port to this computer. The USB-C port only supplies power.',
+  'Hold the MaskROM button and plug in the power supply on USB-C.',
+  'Release the button.',
+];
+
 export const BOARDS = [
   {
     id: 'rock4d',
     name: 'Radxa ROCK 4D',
     storage: 'SPI NOR flash',
     storageBytes: 16 * MIB,
-    maskrom: BUTTON_STEPS,
+    maskrom: ROCK4D_STEPS,
     targets: [
       {
         id: 'uefi', label: 'UEFI firmware', image: 'rock4d', file: 'rock4d-spi-edk2.img', lba: 0,
