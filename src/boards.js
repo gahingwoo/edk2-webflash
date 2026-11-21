@@ -22,7 +22,7 @@ const BUTTON_STEPS = [
 // controller, with a USB-A to USB-A cable.
 const ROCK4D_STEPS = [
   'Unplug the board from power.',
-  'Connect a USB-A to USB-A cable from the board\'s OTG USB-A port to this computer. The USB-C port only supplies power.',
+  'Connect a USB-A to USB-A cable from the board\'s upper USB 3.0 USB-A port to this computer. The USB-C port only supplies power.',
   'Hold the MaskROM button and plug in the power supply on USB-C.',
   'Release the button.',
 ];
