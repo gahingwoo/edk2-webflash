@@ -11,6 +11,16 @@
 const SECTOR = 512;
 const MIB = 1024 * 1024;
 
+// The eMMC layout edk2-rk3576 builds for the CM5-IO and the TaishanPi 3M:
+// the SPL from sector 64, the FIT image from sector 16384, and inside the
+// FIT, last, the 192 KiB "nvdata" slot that holds the saved UEFI settings.
+// The image carries that slot empty (all 0xFF); the board fills it on its
+// first boot. A write that keeps the settings stops where the slot starts.
+// flash.js checks this against the FIT in the downloaded image.
+const FIT_LBA = 16384;
+const NVDATA_LBA = 43648;
+const KEEP_SETTINGS = { fitLba: FIT_LBA, nvdataLba: NVDATA_LBA };
+
 const BUTTON_STEPS = [
   'Unplug the board from power.',
   'Hold the MaskROM button and plug the USB-C cable into this computer.',
@@ -63,9 +73,9 @@ export const BOARDS = [
       },
       {
         id: 'uefi-keep', label: 'UEFI firmware, keep the partitions', image: 'cm5io', file: 'cm5io-emmc-edk2.img',
-        slice: [64 * SECTOR, 32 * MIB], lba: 64,
-        note: 'For an eMMC that already has this firmware and a system on it. Only the firmware partition is written.',
-        erases: 'The firmware partition, which starts at sector 64, is rewritten. The partition table and the other partitions stay. The image carries an empty settings store, so saved UEFI settings are reset. Use this only on an eMMC that was set up with the whole image before.',
+        slice: [64 * SECTOR, NVDATA_LBA * SECTOR], lba: 64, keepsSettings: KEEP_SETTINGS,
+        note: 'For an eMMC that already has this firmware and a system on it. Only the firmware is written.',
+        erases: 'The firmware, from sector 64, is rewritten. The partition table, the other partitions and the saved UEFI settings stay. Use this only on an eMMC that was set up with the whole image before.',
         done: 'The board restarts into the new firmware.',
       },
       {
@@ -98,9 +108,9 @@ export const BOARDS = [
       },
       {
         id: 'uefi-keep', label: 'UEFI firmware, keep the partitions', image: 'tspi3m', file: 'tspi3m-emmc-edk2.img',
-        slice: [16384 * SECTOR, (16384 + 27264) * SECTOR], lba: 16384,
+        slice: [64 * SECTOR, NVDATA_LBA * SECTOR], lba: 64, keepsSettings: KEEP_SETTINGS,
         note: 'For an eMMC that already has this firmware and a system on it. Only the firmware is written.',
-        erases: 'The firmware at sector 16384 is rewritten. The partition table, the installed system and the saved UEFI settings stay. Use this only on an eMMC that was set up with the whole image before.',
+        erases: 'The firmware, from sector 64, is rewritten. The partition table, the installed system and the saved UEFI settings stay. Use this only on an eMMC that was set up with the whole image before.',
         done: 'Power the board off and on. It starts the new firmware.',
       },
     ],

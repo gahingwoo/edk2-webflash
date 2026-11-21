@@ -6,7 +6,7 @@
 <pre id="out"></pre>
 <script type="module">
 import { BOARDS, boardById, customTarget } from '../src/boards.js';
-import { prepare, runFlash } from '../src/flash.js';
+import { prepare, runFlash, checkSettingsSlot } from '../src/flash.js';
 
 const MIB = 1048576;
 const out = document.getElementById('out');
@@ -21,6 +21,28 @@ function image(bytes) {
   const buf = new Uint8Array(bytes);
   const view = new DataView(buf.buffer);
   for (let s = 0; s * 512 < bytes; s++) view.setUint32(s * 512, s, true);
+  return new Blob([buf]);
+}
+// A minimal FIT: /images/nvdata { data-offset = <nvOffset>; }, as edk2-rk3576
+// builds it (external data, after the header rounded up to 4 bytes).
+function fit(nvOffset) {
+  const strings = new TextEncoder().encode('data-offset\0');
+  const words = [];
+  const node = (name) => { words.push(1); const b = new TextEncoder().encode(name + '\0'); const pad = new Uint8Array((b.length + 3) & ~3); pad.set(b); for (let i = 0; i < pad.length; i += 4) words.push(new DataView(pad.buffer).getUint32(i)); };
+  node(''); node('images'); node('nvdata'); words.push(3, 4, 0, nvOffset, 2, 2, 2, 9);
+  const offStruct = 40, offStrings = offStruct + words.length * 4, total = offStrings + strings.length;
+  const buf = new Uint8Array(total), v = new DataView(buf.buffer);
+  v.setUint32(0, 0xd00dfeed); v.setUint32(4, total); v.setUint32(8, offStruct); v.setUint32(12, offStrings); v.setUint32(16, 40);
+  v.setUint32(20, 17); v.setUint32(24, 16); v.setUint32(32, strings.length); v.setUint32(36, words.length * 4);
+  words.forEach((w, i) => v.setUint32(offStruct + i * 4, w));
+  buf.set(strings, offStrings);
+  return buf;
+}
+// A 32 MiB eMMC image with that FIT at sector 16384, its nvdata slot at sector 43648.
+async function emmcImage(nvLba = 43648) {
+  const buf = new Uint8Array(await image(32 * MIB).arrayBuffer());
+  const f0 = fit(0), off = nvLba * 512 - 16384 * 512 - ((f0.length + 3) & ~3);
+  buf.set(fit(off), 16384 * 512);
   return new Blob([buf]);
 }
 async function firstSector(blob) { return new DataView(await blob.slice(0, 4).arrayBuffer()).getUint32(0, true); }
@@ -40,22 +62,32 @@ function fakes({ serial = '', dbExit = 0, wlExit = 0 } = {}) {
 }
 
 const tspi = boardById('tspi3m'), cm5 = boardById('cm5io'), rock = boardById('rock4d');
-const img32 = image(32 * MIB), img16 = image(16 * MIB);
+const img32 = await emmcImage(), img16 = image(16 * MIB);
 const fetchBlob = async (url) => (url.includes('loader') ? new Blob([new Uint8Array(1000)]) : url.includes('rock4d') || url.includes('uboot') ? img16 : img32);
 
 // prepare()
 {
   const t = tspi.targets.find((x) => x.id === 'uefi-keep');
   const part = prepare(tspi, t, img32);
-  ok(part.size === 27264 * 512, 'TaishanPi firmware part is 27264 sectors');
-  ok(await firstSector(part) === 16384, 'TaishanPi firmware part starts at image sector 16384');
-  ok(t.lba === 16384, 'TaishanPi firmware part is written at sector 16384');
+  ok(part.size === (43648 - 64) * 512, 'TaishanPi firmware part stops at the settings slot (sector 43648)');
+  ok(await firstSector(part) === 64, 'TaishanPi firmware part starts at image sector 64');
+  ok(t.lba === 64, 'TaishanPi firmware part is written at sector 64');
   await throws(() => prepare(tspi, t, image(8 * MIB)), /shorter/, 'a short image is refused');
 }
 {
   const t = cm5.targets.find((x) => x.id === 'uefi-keep');
   const part = prepare(cm5, t, img32);
-  ok(part.size === 32 * MIB - 32768 && await firstSector(part) === 64 && t.lba === 64, 'CM5-IO firmware part: image from sector 64 to the end, written at sector 64');
+  ok(part.size === (43648 - 64) * 512 && await firstSector(part) === 64 && t.lba === 64, 'CM5-IO firmware part: sector 64 up to the settings slot, written at sector 64');
+}
+// checkSettingsSlot()
+for (const b of [tspi, cm5]) {
+  const t = b.targets.find((x) => x.id === 'uefi-keep');
+  let threw = null;
+  try { await checkSettingsSlot(img32, t, t.keepsSettings); } catch (e) { threw = e; }
+  ok(!threw, `${b.id}: the settings slot is found where the write stops` + (threw ? ': ' + threw.message : ''));
+  const moved = await emmcImage(43650);
+  await throws(() => checkSettingsSlot(moved, t, t.keepsSettings), /cannot keep the settings/, `${b.id}: a moved settings slot is refused`);
+  await throws(() => checkSettingsSlot(image(32 * MIB), t, t.keepsSettings), /no FIT/, `${b.id}: an image without a FIT is refused`);
 }
 for (const b of BOARDS) for (const t of b.targets) {
   const whole = prepare(b, t, t.file.includes('rock4d') || t.file.includes('uboot') ? img16 : img32);
@@ -68,9 +100,9 @@ await throws(() => prepare(cm5, cm5.targets[0], new Blob([])), /empty/, 'an empt
 {
   const f = fakes();
   await runFlash({ ...f, fetchBlob, board: tspi, target: tspi.targets.find((x) => x.id === 'uefi-keep') });
-  ok(f.calls.join(' | ') === 'requestDevice | db /m/loader.bin/loader.bin | reconnect | requestDevice | wl 16384 /m/firmware.img/firmware.img | rd | umount /m/loader.bin | umount /m/firmware.img',
+  ok(f.calls.join(' | ') === 'requestDevice | db /m/loader.bin/loader.bin | reconnect | requestDevice | wl 64 /m/firmware.img/firmware.img | rd | umount /m/loader.bin | umount /m/firmware.img',
     'MaskROM: db, second device prompt, wl at the target sector, rd: ' + f.calls.join(' | '));
-  ok(f.mounted['firmware.img'].size === 27264 * 512, 'MaskROM: only the firmware part is handed to wl');
+  ok(f.mounted['firmware.img'].size === (43648 - 64) * 512, 'MaskROM: only the firmware part is handed to wl');
 }
 {
   const f = fakes({ serial: 'abc' });

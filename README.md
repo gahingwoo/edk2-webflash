@@ -26,15 +26,18 @@ The page is a three-step wizard.
 | ROCK 4D | UEFI firmware | `ROCK4D-spi-edk2-<ver>.img` to the SPI NOR, from sector 0 |
 | ROCK 4D | Mainline U-Boot | `rock4d-spi-uboot.img` to the SPI NOR, from sector 0 |
 | CM5-IO | UEFI firmware, whole image | `CM5IO-emmc-edk2-<ver>.img` to the eMMC, from sector 0 |
-| CM5-IO | UEFI firmware, keep the partitions | the same image from its sector 64 on, to sector 64 |
+| CM5-IO | UEFI firmware, keep the partitions | sectors 64 to 43647 of the same image, to sector 64 |
 | CM5-IO | Mainline U-Boot | `cm5io-sdcard-uboot.img` to the eMMC, from sector 0 |
 | TaishanPi 3M | UEFI firmware, whole image | `TaishanPi3M-emmc-edk2-<ver>.img` to the eMMC, from sector 0 |
-| TaishanPi 3M | UEFI firmware, keep the partitions | sectors 16384 to 43647 of the same image, to sector 16384 |
+| TaishanPi 3M | UEFI firmware, keep the partitions | sectors 64 to 43647 of the same image, to sector 64 |
 | any | A file from this computer | the file, from sector 0 |
 
 The whole eMMC images carry a partition table, so they replace an installed
 system. "Keep the partitions" writes only the firmware and is for an eMMC that
-was set up with the whole image before; the offsets are the ones in
+was set up with the whole image before. It stops at sector 43648, where the
+FIT's nvdata slot holds the saved UEFI settings; the image carries that slot
+empty, so writing it would reset them. Before writing, the page reads the FIT
+in the image and refuses the write if nvdata does not start there; the offsets are the ones in
 edk2-rk3576's [FLASHING](https://edk2.gahingwoo.com/FLASHING.html). A file
 larger than the ROCK 4D's 16 MiB SPI NOR is refused.
 

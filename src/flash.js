@@ -36,6 +36,39 @@ export function prepare(board, target, blob) {
   return part;
 }
 
+// For a write that keeps the saved UEFI settings: find the "nvdata" image in
+// the FIT at fitLba and check that it starts exactly where the write stops.
+// A build with a different layout would otherwise either cut the firmware
+// short or write its empty settings slot over the board's saved settings.
+export async function checkSettingsSlot(blob, target, layout) {
+  const fit = layout.fitLba * SECTOR;
+  const head = new DataView(await blob.slice(fit, fit + 64 * 1024).arrayBuffer());
+  const refuse = (why) => new Error(`${why} Nothing was written.`);
+  if (head.byteLength < 40 || head.getUint32(0) !== 0xd00dfeed) throw refuse(`The image has no FIT at sector ${layout.fitLba}.`);
+  const total = head.getUint32(4), offStruct = head.getUint32(8), offStrings = head.getUint32(12);
+  if (total > head.byteLength) throw refuse('The FIT header in the image is larger than expected.');
+  const bytes = new Uint8Array(head.buffer, head.byteOffset, total);
+  const str = (o) => { let e = o; while (e < bytes.length && bytes[e]) e++; return new TextDecoder().decode(bytes.subarray(o, e)); };
+  const path = [];
+  let nvOffset = null;
+  for (let p = offStruct; p + 4 <= total;) {
+    const tok = head.getUint32(p); p += 4;
+    if (tok === 1) { const name = str(p); path.push(name); p = (p + name.length + 1 + 3) & ~3; }
+    else if (tok === 2) path.pop();
+    else if (tok === 3) {
+      const len = head.getUint32(p), name = str(offStrings + head.getUint32(p + 4)); p += 8;
+      if (path.join('/') === '/images/nvdata' && name === 'data-offset' && len === 4) nvOffset = head.getUint32(p);
+      p = (p + len + 3) & ~3;
+    } else if (tok === 4) continue;
+    else break;
+  }
+  if (nvOffset === null) throw refuse('The FIT in the image has no nvdata (UEFI settings) slot.');
+  const nvdata = fit + ((total + 3) & ~3) + nvOffset;
+  if (nvdata !== layout.nvdataLba * SECTOR || target.slice[1] !== nvdata) {
+    throw refuse(`The UEFI settings slot in this image starts at byte ${nvdata}, not at ${layout.nvdataLba * SECTOR} where this write stops, so it cannot keep the settings.`);
+  }
+}
+
 export async function runFlash({ rk, usb, fetchBlob, board, target, ui }) {
   let loaderMount = null;
   let fwMount = null;
@@ -65,6 +98,7 @@ export async function runFlash({ rk, usb, fetchBlob, board, target, ui }) {
     ui.status('Waiting for the downloads');
     const [loaderBlob, fwBlob] = await Promise.all([loaderFetch, fwFetch]);
     const part = prepare(board, target, fwBlob);
+    if (target.keepsSettings) await checkSettingsSlot(fwBlob, target, target.keepsSettings);
     ui.log(`Loader: ${(loaderBlob.size / 1024).toFixed(0)} KiB`);
     ui.log(`Image: ${(fwBlob.size / 1048576).toFixed(1)} MiB` + (target.slice ? `, writing ${(part.size / 1048576).toFixed(1)} MiB of it` : ''));
 
