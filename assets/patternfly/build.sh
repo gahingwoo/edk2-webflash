@@ -13,7 +13,7 @@ VERSION=$(grep -o '"version": *"[^"]*"' "$PKG/package.json" | cut -d'"' -f4)
   echo "/* Built by assets/patternfly/build.sh from @patternfly/patternfly $VERSION. Do not edit. */"
   cat "$PKG/patternfly-base.css"
   for c in Page/page Masthead/masthead Wizard/wizard Button/button Title/title Content/content \
-           Table/table Table/table-grid Radio/radio Check/check Form/form HelperText/helper-text \
+           Card/card Radio/radio Check/check Form/form HelperText/helper-text \
            Alert/alert Progress/progress DescriptionList/description-list List/list \
            ExpandableSection/expandable-section CodeBlock/code-block ActionList/action-list \
            ToggleGroup/toggle-group; do

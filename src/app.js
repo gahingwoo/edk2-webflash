@@ -100,16 +100,18 @@ function renderNotices() {
 }
 
 // ── Step 1: board ──────────────────────────────────────────────────────────
+// The boards as radios with a line under each, in Maskrom Studio's order.
+const BOARD_ORDER = ['tspi3m', 'cm5io', 'rock4d'];
 function renderBoards() {
-  $('board-rows').innerHTML = BOARDS.map((b) => {
-    const v = stableVersionOf(b);
+  const order = (b) => { const i = BOARD_ORDER.indexOf(b.id); return i < 0 ? BOARD_ORDER.length : i; };
+  $('board-radios').innerHTML = [...BOARDS].sort((a, b) => order(a) - order(b)).map((b) => {
     const checked = state.board === b;
-    return `<tr class="pf-v6-c-table__tr pf-m-clickable${checked ? ' pf-m-selected' : ''}" role="row" data-board="${b.id}">
-      <td class="pf-v6-c-table__td pf-v6-c-table__check"><div class="pf-v6-c-radio pf-m-standalone"><input class="pf-v6-c-radio__input" type="radio" name="board" id="board-${b.id}" value="${b.id}" aria-label="${esc(b.name)}"${checked ? ' checked' : ''}></div></td>
-      <td class="pf-v6-c-table__td nowrap-md" data-label="${esc(t('board.col.board'))}">${esc(b.name)}</td>
-      <td class="pf-v6-c-table__td nowrap-md" data-label="${esc(t('board.col.storage'))}">${esc(tr(b.storage))}</td>
-      <td class="pf-v6-c-table__td" data-label="${esc(t('board.col.uefi'))}">${v ? esc(v) : 'edk2-rk3576'}</td>
-    </tr>`;
+    const desc = t('board.desc', { storage: tr(b.storage), version: stableVersionOf(b) || 'edk2-rk3576' });
+    return `<div class="pf-v6-c-radio">
+      <input class="pf-v6-c-radio__input" type="radio" name="board" id="board-${b.id}" value="${b.id}"${checked ? ' checked' : ''}>
+      <label class="pf-v6-c-radio__label" for="board-${b.id}">${esc(b.name)}</label>
+      <span class="pf-v6-c-radio__description">${esc(desc)}</span>
+    </div>`;
   }).join('');
   const rel = state.versions?.release;
   $('release-note').innerHTML = rel
@@ -125,15 +127,12 @@ function chooseBoard(id) {
   state.targetId = b.targets[0].id;
   state.reached = Math.min(state.reached, 0);
   state.finished = false;
-  renderBoards();
+  // The radios already show the choice; drawing them again would take the
+  // keyboard focus away from the one just chosen.
   render();
 }
 
-$('board-rows').addEventListener('click', (e) => {
-  const row = e.target.closest('tr[data-board]');
-  if (row) chooseBoard(row.dataset.board);
-});
-$('board-rows').addEventListener('change', (e) => {
+$('board-radios').addEventListener('change', (e) => {
   if (e.target.name === 'board') chooseBoard(e.target.value);
 });
 
@@ -219,6 +218,8 @@ $('target-radios').addEventListener('change', (e) => {
   $('ack').checked = false;
   $('ci-ack').checked = false;
   render();
+  // render() draws the radios again: give the focus back to the chosen one.
+  $(`target-${state.targetId}`)?.focus();
 });
 $('file-button').addEventListener('click', () => $('file-input').click());
 $('file-input').addEventListener('change', () => {
@@ -453,7 +454,8 @@ function render() {
     else if (needAck) note = t('note.ack');
     else if (state.running) note = t('note.running');
   }
-  $('back').disabled = state.step === 0 || state.running;
+  $('back').hidden = state.step === 0;
+  $('back').disabled = state.running;
   $('footer-note').textContent = note;
 }
 

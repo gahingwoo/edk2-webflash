@@ -18,12 +18,12 @@ and a Windows install without a USB stick, are in the desktop app
 
 ## Usage
 
-The page is a three-step wizard.
+The page is a three-step wizard, laid out and worded as Maskrom Studio's.
 
-1. **Board**: Radxa ROCK 4D, ArmSoM CM5-IO or LCKFB TaishanPi 3M.
-2. **Firmware**: one of the choices in the table below, and where the UEFI
+1. **Board**: LCKFB TaishanPi 3M, ArmSoM CM5-IO or Radxa ROCK 4D.
+2. **What to write**: one of the choices in the table below, and where the UEFI
    image comes from (see [Release channels](#release-channels)).
-3. **Write**: the page lists what will be written and where, and how to put
+3. **Review**: the page lists what will be written and where, and how to put
    the board into MaskROM. Click **Connect and write** and pick the Rockchip
    device from the browser prompt. The loader is sent and the board comes back
    as a new USB device; click **Choose the board** and pick it again. The
@@ -53,7 +53,7 @@ larger than the ROCK 4D's 16 MiB SPI NOR is refused.
 ### Release channels
 
 The UEFI images come from one of three channels of edk2-rk3576, chosen on the
-Firmware step, as in Maskrom Studio:
+What to write step, as in Maskrom Studio:
 
 | Channel | What it is |
 |---|---|

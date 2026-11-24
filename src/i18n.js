@@ -10,11 +10,11 @@ const M = {
   'page.title': ['RK3576 firmware flash', 'RK3576 固件刷写'],
   'page.docs': ['Documentation', '文档'],
   'page.releases': ['Releases', '发布'],
-  'page.lang': ['中文', 'English'],
-  'page.lang.aria': ['显示中文', 'Show this page in English'],
+  'page.lang': ['English', '简体中文'],
+  'page.lang.aria': ['Display language', '显示语言'],
   'step.board': ['Board', '开发板'],
-  'step.firmware': ['Firmware', '固件'],
-  'step.write': ['Write', '写入'],
+  'step.firmware': ['What to write', '写入内容'],
+  'step.write': ['Review', '确认'],
   'steps': ['Steps', '步骤'],
   'back': ['Back', '上一步'],
   'next': ['Next', '下一步'],
@@ -25,18 +25,16 @@ const M = {
   'alert.danger': ['Danger alert', '错误'],
 
   // step 1
-  'board.lead': ['Choose the board to write to.', '选择要写入的开发板。'],
-  'board.select': ['Select', '选择'],
-  'board.col.board': ['Board', '开发板'],
-  'board.col.storage': ['Written to', '写入位置'],
-  'board.col.uefi': ['UEFI firmware', 'UEFI 固件'],
+  'board.lead': ['The board to write. Each one says where its firmware goes.', '选择要写入的开发板。每块板下面写着它的固件装在哪里。'],
+  'board.label': ['Board', '开发板'],
+  'board.desc': ['Firmware on the {storage}; UEFI firmware {version}.', '固件位于 {storage}；UEFI 固件 {version}。'],
   'board.note.release': ['The UEFI images come from edk2-rk3576 release {link}. A board whose image did not change in that release keeps its older version. Pre-releases and CI builds can be chosen in the next step.',
     'UEFI 镜像来自 edk2-rk3576 正式版 {link}。该版本没有改动的开发板沿用较早的版本。预发布版和 CI 构建可以在下一步选择。'],
   'board.note.latest': ['The UEFI images come from the latest {link}.', 'UEFI 镜像来自最新的 {link}。'],
   'board.note.latestLink': ['edk2-rk3576 release', 'edk2-rk3576 正式版'],
 
   // step 2
-  'fw.lead': ['What to write to the {storage} of the {board}.', '要写入 {board} 的 {storage} 的内容。'],
+  'fw.lead': ['For the {storage} of the {board}.', '写入 {board} 的 {storage}。'],
   'fw.custom': ['A file from this computer', '这台电脑上的文件'],
   'fw.custom.note': ['Any .img or .bin, written from sector 0.', '任意 .img 或 .bin 文件，从扇区 0 开始写入。'],
   'fw.chooseFile': ['Choose a file', '选择文件'],
@@ -75,7 +73,7 @@ const M = {
   'review.size.part': ['{mib} MiB of the image', '镜像中的 {mib} MiB'],
   'review.size.whole': ['the whole image', '整个镜像'],
   'review.replaces': ['What this replaces', '会被替换的内容'],
-  'maskrom.title': ['Put the board into MaskROM', '让开发板进入 MaskROM 模式'],
+  'maskrom.title': ['Put the board in MaskROM mode', '让开发板进入 MaskROM 模式'],
   'maskrom.more': ['Linux and macOS need no driver. On Windows the device needs the WinUSB driver, installed with {zadig}. More in the {docs}.',
     'Linux 和 macOS 不需要驱动。Windows 上该设备需要 WinUSB 驱动，可用 {zadig} 安装。详见{docs}。'],
   'maskrom.docs': ['flashing instructions', '刷写说明'],
@@ -99,7 +97,7 @@ const M = {
   'note.noUsb': ['This browser cannot reach USB devices.', '这个浏览器无法访问 USB 设备。'],
   'note.toolError': ['The write tool did not load.', '写入工具没有加载。'],
   'note.loading': ['Loading the write tool.', '正在加载写入工具。'],
-  'note.ack': ['Tick the box above first.', '请先勾选上方的确认框。'],
+  'note.ack': ['Tick the box at the end of this page first.', '请先勾选本页末尾的确认框。'],
   'note.running': ['Keep this page open and the cable connected.', '请保持此页面打开、数据线连接。'],
   'notice.noUsb.title': ['This browser cannot reach USB devices', '这个浏览器无法访问 USB 设备'],
   'notice.noUsb.body': ['Writing needs WebUSB, which Chrome and Edge have on a computer. You can still look through the steps here.', '写入需要 WebUSB，电脑上的 Chrome 和 Edge 支持。你仍然可以在这里浏览各个步骤。'],
@@ -164,6 +162,7 @@ export function tr(v) { return v == null || typeof v === 'string' ? v : (v[lang]
 export function applyStatic(root = document) {
   root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
   root.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+  root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.setAttribute('title', t(el.dataset.i18nTitle)); });
   document.title = t('page.title');
 }
 
