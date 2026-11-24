@@ -9,6 +9,13 @@ It wraps [rkdeveloptool](https://github.com/rockchip-linux/rkdeveloptool) compil
 Requires Chrome or Edge (WebUSB). No drivers on Linux and macOS.
 Windows: install WinUSB for the device with [Zadig](https://zadig.akeo.ie/).
 
+New to these boards? Start at
+[edk2-rk3576](https://github.com/gahingwoo/edk2-rk3576#from-a-new-board-to-windows-or-linux)
+([简体中文](https://github.com/gahingwoo/edk2-rk3576/blob/main/README.zh-CN.md)):
+it has the whole path from a new board to Windows or Linux. The same writes,
+and a Windows install without a USB stick, are in the desktop app
+[Maskrom Studio](https://github.com/gahingwoo/maskrom-studio).
+
 ## Usage
 
 The page is a three-step wizard.
@@ -38,7 +45,8 @@ was set up with the whole image before. It stops at sector 43648, where the
 FIT's nvdata slot holds the saved UEFI settings; the image carries that slot
 empty, so writing it would reset them. Before writing, the page reads the FIT
 in the image and refuses the write if nvdata does not start there; the offsets are the ones in
-edk2-rk3576's [FLASHING](https://edk2.gahingwoo.com/FLASHING.html). A file
+edk2-rk3576's [flashing page](https://edk2.gahingwoo.com/flash.html#updating-the-firmware-and-keeping-everything-else),
+which uses the same range for its `rkdeveloptool` and `dd` commands. A file
 larger than the ROCK 4D's 16 MiB SPI NOR is refused.
 
 The TaishanPi 3M has no MaskROM button: two pads marked `MSK` are shorted while
