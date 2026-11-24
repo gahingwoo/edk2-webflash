@@ -15,7 +15,8 @@ VERSION=$(grep -o '"version": *"[^"]*"' "$PKG/package.json" | cut -d'"' -f4)
   for c in Page/page Masthead/masthead Wizard/wizard Button/button Title/title Content/content \
            Table/table Table/table-grid Radio/radio Check/check Form/form HelperText/helper-text \
            Alert/alert Progress/progress DescriptionList/description-list List/list \
-           ExpandableSection/expandable-section CodeBlock/code-block ActionList/action-list; do
+           ExpandableSection/expandable-section CodeBlock/code-block ActionList/action-list \
+           ToggleGroup/toggle-group; do
     cat "$PKG/components/$c.css"
   done
   for l in Stack/stack; do cat "$PKG/layouts/$l.css"; done

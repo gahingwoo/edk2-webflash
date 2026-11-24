@@ -5,8 +5,11 @@
      Each line is PASS or FAIL; the last line is the count. -->
 <pre id="out"></pre>
 <script type="module">
-import { BOARDS, boardById, customTarget } from '../src/boards.js';
-import { prepare, runFlash, checkSettingsSlot } from '../src/flash.js';
+// The same URLs as the page's imports, so the modules share one i18n.js.
+import { BOARDS, boardById, customTarget, channelImage, withImage } from '../src/boards.js?v=WASM_HASH';
+import { prepare, runFlash, checkSettingsSlot, checkDownload } from '../src/flash.js?v=WASM_HASH';
+import { setLang, t, tr } from '../src/i18n.js?v=WASM_HASH';
+setLang('en', false);
 
 const MIB = 1048576;
 const out = document.getElementById('out');
@@ -131,6 +134,52 @@ await throws(() => prepare(cm5, cm5.targets[0], new Blob([])), /empty/, 'an empt
   const file = new File([new Uint8Array(2 * MIB)], 'mine.img');
   await runFlash({ ...f, fetchBlob, board: cm5, target: customTarget(file) });
   ok(f.mounted['firmware.img'] === file && f.calls.some((c) => c.startsWith('wl 0 ')), 'a custom file is written whole from sector 0');
+}
+
+// Release channels: a UEFI target with the CI image of firmware.json put in.
+async function sha256(blob) {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const imgSha = await sha256(img32);
+const versions = { channels: {
+  stable: { tag: '0.4.1', images: { tspi3m: { version: '0.4.1', file: 'tspi3m-emmc-edk2.img', size: img32.size, sha256: imgSha } } },
+  ci: { tag: 'ci', commit: 'cbbb844608582bc7f0bd0f6a89d94e62e6872735', images: { tspi3m: { version: 'ci-cbbb844', file: 'ci/tspi3m-emmc-edk2.img', size: img32.size, sha256: imgSha } } },
+} };
+{
+  const keep = tspi.targets.find((x) => x.id === 'uefi-keep');
+  const ci = withImage(keep, channelImage(versions, 'ci', 'tspi3m'), 'ci');
+  ok(ci.file === 'ci/tspi3m-emmc-edk2.img' && ci.version === 'ci-cbbb844' && ci.sha256 === imgSha && ci.channel === 'ci', 'CI channel: the CI file, version and checksum are put in');
+  ok(ci.lba === 64 && ci.slice[1] === 43648 * 512 && ci.keepsSettings === keep.keepsSettings, 'CI channel: keep the partitions still stops at the settings slot');
+  ok(withImage(keep, channelImage(versions, 'ci', 'cm5io'), 'ci') === null, 'CI channel without an image for the board: no target');
+  ok(withImage(tspi.targets.find((x) => x.id === 'uefi'), null, 'ci') === null, 'no image: a UEFI target cannot be written');
+  const uboot = cm5.targets.find((x) => x.id === 'uboot');
+  ok(withImage(uboot, null, 'ci') === uboot, 'U-Boot is the same in every channel');
+  ok(channelImage(null, 'ci', 'tspi3m') === null && channelImage(versions, 'prerelease', 'tspi3m') === null, 'a channel firmware.json lacks has no image');
+
+  let threw = null;
+  try { await checkDownload(img32, ci); } catch (e) { threw = e; }
+  ok(!threw, 'checkDownload: the image firmware.json describes is accepted' + (threw ? ': ' + threw.message : ''));
+  await throws(() => checkDownload(img32, { ...ci, sha256: '0'.repeat(64) }), /does not match its SHA-256/, 'checkDownload: another SHA-256 is refused');
+  await throws(() => checkDownload(image(8 * MIB), ci), /not the 33554432 bytes/, 'checkDownload: another size is refused');
+
+  const f = fakes();
+  const urls = [];
+  await runFlash({ ...f, fetchBlob: async (u) => { urls.push(u); return fetchBlob(u); }, board: tspi, target: ci });
+  ok(urls.includes(`./ci/tspi3m-emmc-edk2.img?v=${imgSha.slice(0, 16)}`), 'CI write: the CI image is fetched, with its checksum in the query: ' + urls.join(' '));
+  ok(f.calls.includes('wl 64 /m/firmware.img/firmware.img') && f.mounted['firmware.img'].size === (43648 - 64) * 512, 'CI write: sectors 64 to 43647 only, the saved settings stay');
+
+  const g = fakes();
+  await throws(() => runFlash({ ...g, fetchBlob: async (u) => (u.includes('loader') ? new Blob([1]) : emmcImage(43648).then((b) => new Blob([b, new Uint8Array(1)]))), board: tspi, target: ci }),
+    /should be/, 'a download that is not the described image stops the run');
+  ok(!g.calls.some((c) => c.startsWith('db') || c.startsWith('wl')), 'a mismatching download: nothing is sent to the board');
+}
+// Chinese
+{
+  setLang('zh', false);
+  ok(/未写入任何内容/.test((() => { try { prepare(cm5, cm5.targets[0], new Blob([])); } catch (e) { return e.message; } return ''; })()), 'Chinese: errors are in Chinese');
+  ok(tr(tspi.targets[1].label) === 'UEFI 固件，保留分区' && t('channel.ci') === 'CI 构建', 'Chinese: board and page wording');
+  setLang('en', false);
+  ok(tr(tspi.targets[1].label) === 'UEFI firmware, keep the partitions', 'back to English');
 }
 
 out.textContent += `\n${passed} passed, ${failed} failed\n`;

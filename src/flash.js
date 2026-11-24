@@ -11,7 +11,9 @@
 //                 picked the device again from a click }
 //
 // Resolves when the board has been told to reset; throws with a message for
-// the user otherwise. Nothing is written before the checks in prepare().
+// the user otherwise. Nothing is written before the checks in prepare(),
+// checkDownload() and, for a write that keeps the settings, checkSettingsSlot().
+import { t, tr } from './i18n.js?v=WASM_HASH';
 
 const SECTOR = 512;
 const VENDOR_ROCKCHIP = 0x2207;
@@ -23,15 +25,15 @@ export function prepare(board, target, blob) {
   let part = blob;
   if (target.slice) {
     const [start, end] = target.slice;
-    if (start % SECTOR || end % SECTOR) throw new Error('The image part does not start and end on a sector.');
+    if (start % SECTOR || end % SECTOR) throw new Error(t('flash.sector'));
     if (blob.size < end) {
-      throw new Error(`The image is ${blob.size} bytes, shorter than the ${end} bytes this write expects. Nothing was written.`);
+      throw new Error(t('flash.short', { size: blob.size, end }));
     }
     part = blob.slice(start, end);
   }
-  if (part.size === 0) throw new Error('The image is empty. Nothing was written.');
+  if (part.size === 0) throw new Error(t('flash.empty'));
   if (board.storageBytes && target.lba * SECTOR + part.size > board.storageBytes) {
-    throw new Error(`The image does not fit the ${board.storage} (${board.storageBytes / 1048576} MiB). Nothing was written.`);
+    throw new Error(t('flash.fit', { storage: tr(board.storage), mib: board.storageBytes / 1048576 }));
   }
   return part;
 }
@@ -43,10 +45,10 @@ export function prepare(board, target, blob) {
 export async function checkSettingsSlot(blob, target, layout) {
   const fit = layout.fitLba * SECTOR;
   const head = new DataView(await blob.slice(fit, fit + 64 * 1024).arrayBuffer());
-  const refuse = (why) => new Error(`${why} Nothing was written.`);
-  if (head.byteLength < 40 || head.getUint32(0) !== 0xd00dfeed) throw refuse(`The image has no FIT at sector ${layout.fitLba}.`);
+  const refuse = (why) => new Error(t('flash.nothing', { why }));
+  if (head.byteLength < 40 || head.getUint32(0) !== 0xd00dfeed) throw refuse(t('flash.noFit', { lba: layout.fitLba }));
   const total = head.getUint32(4), offStruct = head.getUint32(8), offStrings = head.getUint32(12);
-  if (total > head.byteLength) throw refuse('The FIT header in the image is larger than expected.');
+  if (total > head.byteLength) throw refuse(t('flash.fitLarge'));
   const bytes = new Uint8Array(head.buffer, head.byteOffset, total);
   const str = (o) => { let e = o; while (e < bytes.length && bytes[e]) e++; return new TextDecoder().decode(bytes.subarray(o, e)); };
   const path = [];
@@ -62,10 +64,25 @@ export async function checkSettingsSlot(blob, target, layout) {
     } else if (tok === 4) continue;
     else break;
   }
-  if (nvOffset === null) throw refuse('The FIT in the image has no nvdata (UEFI settings) slot.');
+  if (nvOffset === null) throw refuse(t('flash.noNvdata'));
   const nvdata = fit + ((total + 3) & ~3) + nvOffset;
   if (nvdata !== layout.nvdataLba * SECTOR || target.slice[1] !== nvdata) {
-    throw refuse(`The UEFI settings slot in this image starts at byte ${nvdata}, not at ${layout.nvdataLba * SECTOR} where this write stops, so it cannot keep the settings.`);
+    throw refuse(t('flash.nvMoved', { at: nvdata, want: layout.nvdataLba * SECTOR }));
+  }
+}
+
+// The downloaded image is the one firmware.json describes: its size and
+// SHA-256. A page and an image from two different deploys, or a damaged
+// download, are refused before the board is touched.
+export async function checkDownload(blob, target) {
+  const name = target.file.split('/').pop();
+  const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (target.size != null && blob.size !== target.size) {
+    throw new Error(t('flash.size', { name, size: blob.size, want: target.size }));
+  }
+  const got = hex(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
+  if (got !== target.sha256) {
+    throw new Error(t('flash.checksum', { name, got: got.slice(0, 16), want: target.sha256.slice(0, 16) }));
   }
 }
 
@@ -82,7 +99,9 @@ export async function runFlash({ rk, usb, fetchBlob, board, target, ui }) {
       fwFetch = Promise.resolve(target.blob);
     } else {
       ui.log(`Fetching ${target.file}`, 'dim');
-      fwFetch = fetchBlob('./' + target.file);
+      // The checksum in the query: a new image under the same name is never
+      // taken from the browser's cache.
+      fwFetch = fetchBlob('./' + target.file + (target.sha256 ? `?v=${target.sha256.slice(0, 16)}` : ''));
     }
     // A failed download is reported at the await below, not as an unhandled rejection.
     loaderFetch.catch(() => {});
@@ -90,13 +109,18 @@ export async function runFlash({ rk, usb, fetchBlob, board, target, ui }) {
 
     // requestDevice() has to run inside the click that started this, so
     // nothing is awaited before it.
-    ui.status('Choose the Rockchip device in the browser prompt');
+    ui.status(t('status.choose'));
     const device = await usb.requestDevice({ filters: [{ vendorId: VENDOR_ROCKCHIP }] });
     const maskrom = !device.serialNumber;
     ui.log(`USB device: ${device.productName || 'Rockchip'} (PID 0x${device.productId.toString(16)}), ${maskrom ? 'MaskROM' : 'loader'} mode`);
 
-    ui.status('Waiting for the downloads');
+    ui.status(t('status.downloads'));
     const [loaderBlob, fwBlob] = await Promise.all([loaderFetch, fwFetch]);
+    if (target.sha256) {
+      ui.status(t('status.checking'));
+      await checkDownload(fwBlob, target);
+      ui.log(`SHA-256 ${target.sha256}: OK`, 'dim');
+    }
     const part = prepare(board, target, fwBlob);
     if (target.keepsSettings) await checkSettingsSlot(fwBlob, target, target.keepsSettings);
     ui.log(`Loader: ${(loaderBlob.size / 1024).toFixed(0)} KiB`);
@@ -106,25 +130,25 @@ export async function runFlash({ rk, usb, fetchBlob, board, target, ui }) {
     fwMount = await rk.mountBlob('firmware.img', part);
 
     if (maskrom) {
-      ui.status('Sending the loader');
+      ui.status(t('status.loader'));
       ui.log('\n$ rkdeveloptool db loader.bin');
       const db = await rk.run(['db', loaderMount.path]);
-      if (db.exitCode !== 0) throw new Error(`Sending the loader failed (rkdeveloptool db, exit ${db.exitCode}). Nothing was written.`);
+      if (db.exitCode !== 0) throw new Error(t('flash.db', { code: db.exitCode }));
 
       // The board re-enumerates under the loader. WebUSB drops the old handle,
       // and a new requestDevice() needs a new click.
       ui.log('Loader sent. The board comes back as a new USB device.', 'dim');
-      ui.status('Choose the board again');
+      ui.status(t('status.again'));
       await ui.reconnect(() => usb.requestDevice({ filters: [{ vendorId: VENDOR_ROCKCHIP }] }));
       ui.log('Device chosen.', 'dim');
     } else {
       ui.log('The device is already in loader mode.', 'dim');
     }
 
-    ui.status(`Writing to the ${board.storage}`);
+    ui.status(t('status.writing', { storage: tr(board.storage) }));
     ui.log(`\n$ rkdeveloptool wl ${target.lba} firmware.img`);
     const wl = await rk.run(['wl', String(target.lba), fwMount.path]);
-    if (wl.exitCode !== 0) throw new Error(`The write failed (rkdeveloptool wl, exit ${wl.exitCode}). The ${board.storage} may be partly written: write it again.`);
+    if (wl.exitCode !== 0) throw new Error(t('flash.wl', { code: wl.exitCode, storage: tr(board.storage) }));
 
     ui.log('\n$ rkdeveloptool rd');
     await rk.run(['rd']);

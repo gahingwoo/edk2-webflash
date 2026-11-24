@@ -1,14 +1,17 @@
 // The page: a three-step PatternFly wizard around runFlash() in flash.js.
 import { createFlashWorker } from './proxy.js?v=WASM_HASH';
-import { BOARDS, boardById, customTarget } from './boards.js?v=WASM_HASH';
+import { BOARDS, boardById, customTarget, channelImage, withImage } from './boards.js?v=WASM_HASH';
 import { runFlash } from './flash.js?v=WASM_HASH';
+import { t, tr, getLang, setLang, locale, applyStatic } from './i18n.js?v=WASM_HASH';
 
 const WORKER_URL = new URL('./worker.js?v=WASM_HASH', import.meta.url).href;
 const MODULE_URL = new URL('../dist/rkdeveloptool.js?v=WASM_HASH', import.meta.url).href;
 const WASM_URL = new URL('../dist/rkdeveloptool.wasm?v=WASM_HASH', import.meta.url).href;
 
 const $ = (id) => document.getElementById(id);
-const STEP_NAMES = ['Board', 'Firmware', 'Write'];
+const STEP_KEYS = ['step.board', 'step.firmware', 'step.write'];
+const CHANNELS = ['stable', 'prerelease', 'ci'];
+const REPO_URL = 'https://github.com/gahingwoo/edk2-rk3576';
 
 const ICONS = {
   info: 'M16 1C7.729 1 1 7.729 1 16s6.729 15 15 15 15-6.729 15-15S24.271 1 16 1Zm1.5 22a1.5 1.5 0 1 1-3 0v-5.157l-.188.04a1.5 1.5 0 0 1-.625-2.934l1.956-.416c.112-.024.223-.032.333-.03l.024-.002a1.5 1.5 0 0 1 1.5 1.5v7Zm-.08-12.58c-.38.37-.89.58-1.42.58a1.998 1.998 0 0 1-1.851-2.76c.051-.13.11-.24.19-.35.07-.11.15-.21.25-.3.74-.75 2.08-.75 2.83 0 .09.09.17.19.24.3.08.11.14.22.189.35.05.12.09.24.11.37.03.13.04.26.04.39 0 .53-.21 1.04-.58 1.42Z',
@@ -16,7 +19,7 @@ const ICONS = {
   warning: 'm31.874 28.514-15.011-27a1.001 1.001 0 0 0-1.748 0l-15.011 27A1 1 0 0 0 .978 30H31a1 1 0 0 0 .874-1.486ZM14.5 12a1.5 1.5 0 0 1 3 0v5a1.5 1.5 0 0 1-3 0v-5ZM16 26.001a2 2 0 1 1-.001-3.999A2 2 0 0 1 16 26.001Z',
   danger: 'M16 1C7.729 1 1 7.729 1 16s6.729 15 15 15 15-6.729 15-15S24.271 1 16 1Zm-1.5 8a1.5 1.5 0 1 1 3 0v7a1.5 1.5 0 1 1-3 0V9ZM16 25.001a2 2 0 1 1-.001-3.999A2 2 0 0 1 16 25.001Z',
 };
-const KIND_WORD = { info: 'Info', success: 'Success', warning: 'Warning', danger: 'Danger' };
+
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c]));
@@ -24,9 +27,9 @@ function esc(s) {
 
 // An inline PatternFly alert. `body` and `action` are trusted markup built here.
 function alertHtml(kind, title, body = '', action = '') {
-  return `<div class="pf-v6-c-alert pf-m-inline pf-m-${kind}" aria-label="${KIND_WORD[kind]} alert">
+  return `<div class="pf-v6-c-alert pf-m-inline pf-m-${kind}" aria-label="${esc(t(`alert.${kind}`))}">
     <div class="pf-v6-c-alert__icon"><svg class="pf-v6-svg" fill="currentColor" viewBox="0 0 32 32" aria-hidden="true" role="img" width="1em" height="1em"><path d="${ICONS[kind]}"/></svg></div>
-    <p class="pf-v6-c-alert__title"><span class="pf-v6-screen-reader">${KIND_WORD[kind]} alert:</span> ${esc(title)}</p>
+    <p class="pf-v6-c-alert__title"><span class="pf-v6-screen-reader">${esc(t(`alert.${kind}`))}:</span> ${esc(title)}</p>
     ${body ? `<div class="pf-v6-c-alert__description">${body}</div>` : ''}
     ${action ? `<div class="pf-v6-c-alert__action-group">${action}</div>` : ''}
   </div>`;
@@ -38,47 +41,80 @@ const state = {
   board: null,        // an entry of BOARDS
   targetId: null,     // a target id of that board, or 'custom'
   file: null,         // File, for 'custom'
-  versions: null,     // { release, images: { rock4d, cm5io, tspi3m } } from firmware.json
+  channel: 'stable',  // 'stable', 'prerelease' or 'ci': where the UEFI images come from
+  versions: null,     // firmware.json: { channels: { stable, prerelease, ci }, release, images }
   rk: null,           // worker proxy once the tool has loaded
   toolError: null,
   running: false,
   finished: false,
 };
 
+// A target as it is written: a UEFI target gets the file of the chosen
+// channel, or is null when that channel has no image for the board.
+function resolveTarget(board, target) {
+  if (!target.image) return target;
+  // firmware.json not loaded (yet): the stable files under their fixed names,
+  // without a checksum to compare, as before there were channels.
+  if (!state.versions?.channels) return state.channel === 'stable' ? target : null;
+  return withImage(target, channelImage(state.versions, state.channel, board.id), state.channel);
+}
+
 function currentTarget() {
   if (!state.board || !state.targetId) return null;
   if (state.targetId === 'custom') return state.file ? customTarget(state.file) : null;
-  return state.board.targets.find((t) => t.id === state.targetId) || null;
+  const target = state.board.targets.find((x) => x.id === state.targetId);
+  return target ? resolveTarget(state.board, target) : null;
 }
 
-function versionOf(board) {
-  return state.versions?.images?.[board.id] || null;
+function channelInfo(c = state.channel) {
+  return state.versions?.channels?.[c] || null;
+}
+
+function stableVersionOf(board) {
+  return channelImage(state.versions, 'stable', board.id)?.version || state.versions?.images?.[board.id] || null;
+}
+
+function shortSha(sha) { return sha ? sha.slice(0, 7) : t('ci.unknownCommit'); }
+function commitLink(sha) {
+  return sha ? `<a href="${REPO_URL}/commit/${encodeURIComponent(sha)}" target="_blank" rel="noopener"><span class="detail">${esc(sha.slice(0, 7))}</span></a>` : esc(t('ci.unknownCommit'));
+}
+function releaseLink(info) {
+  return `<a href="${esc(info.url)}" target="_blank" rel="noopener">${esc(info.tag)}</a>`;
+}
+function when(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return '?';
+  return new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(d);
 }
 
 // ── Notices above the wizard ───────────────────────────────────────────────
+// Each notice is a function that returns its markup, so it follows the language.
 const notices = new Map();
 function setNotice(key, html) {
   if (html) notices.set(key, html); else notices.delete(key);
-  $('notices-body').innerHTML = `<div class="pf-v6-l-stack pf-m-gutter">${[...notices.values()].map((h) => `<div class="pf-v6-l-stack__item">${h}</div>`).join('')}</div>`;
+  renderNotices();
+}
+function renderNotices() {
+  $('notices-body').innerHTML = `<div class="pf-v6-l-stack pf-m-gutter">${[...notices.values()].map((h) => `<div class="pf-v6-l-stack__item">${h()}</div>`).join('')}</div>`;
   $('notices').hidden = notices.size === 0;
 }
 
 // ── Step 1: board ──────────────────────────────────────────────────────────
 function renderBoards() {
   $('board-rows').innerHTML = BOARDS.map((b) => {
-    const v = versionOf(b);
+    const v = stableVersionOf(b);
     const checked = state.board === b;
     return `<tr class="pf-v6-c-table__tr pf-m-clickable${checked ? ' pf-m-selected' : ''}" role="row" data-board="${b.id}">
       <td class="pf-v6-c-table__td pf-v6-c-table__check"><div class="pf-v6-c-radio pf-m-standalone"><input class="pf-v6-c-radio__input" type="radio" name="board" id="board-${b.id}" value="${b.id}" aria-label="${esc(b.name)}"${checked ? ' checked' : ''}></div></td>
-      <td class="pf-v6-c-table__td nowrap-md" data-label="Board">${esc(b.name)}</td>
-      <td class="pf-v6-c-table__td nowrap-md" data-label="Written to">${esc(b.storage)}</td>
-      <td class="pf-v6-c-table__td" data-label="UEFI firmware">${v ? esc(v) : 'edk2-rk3576'}</td>
+      <td class="pf-v6-c-table__td nowrap-md" data-label="${esc(t('board.col.board'))}">${esc(b.name)}</td>
+      <td class="pf-v6-c-table__td nowrap-md" data-label="${esc(t('board.col.storage'))}">${esc(tr(b.storage))}</td>
+      <td class="pf-v6-c-table__td" data-label="${esc(t('board.col.uefi'))}">${v ? esc(v) : 'edk2-rk3576'}</td>
     </tr>`;
   }).join('');
   const rel = state.versions?.release;
   $('release-note').innerHTML = rel
-    ? `The UEFI images come from edk2-rk3576 release <a href="https://github.com/gahingwoo/edk2-rk3576/releases/tag/${encodeURIComponent(rel)}">${esc(rel)}</a>. A board whose image did not change in that release keeps its older version.`
-    : 'The UEFI images come from the latest <a href="https://github.com/gahingwoo/edk2-rk3576/releases/latest">edk2-rk3576 release</a>.';
+    ? t('board.note.release', { link: `<a href="${REPO_URL}/releases/tag/${encodeURIComponent(rel)}">${esc(rel)}</a>` })
+    : t('board.note.latest', { link: `<a href="${REPO_URL}/releases/latest">${esc(t('board.note.latestLink'))}</a>` });
 }
 
 function chooseBoard(id) {
@@ -102,24 +138,77 @@ $('board-rows').addEventListener('change', (e) => {
 });
 
 // ── Step 2: firmware ───────────────────────────────────────────────────────
+// The channel choice: a PatternFly toggle group. A channel firmware.json does
+// not have (the deploy could not bundle it, or there is no such release) is
+// shown disabled.
+function renderChannels() {
+  const loaded = !!state.versions?.channels;
+  $('channel-group').innerHTML = CHANNELS.map((c) => {
+    const on = state.channel === c;
+    const off = loaded ? !channelInfo(c) : c !== 'stable';
+    return `<div class="pf-v6-c-toggle-group__item"><button type="button" class="pf-v6-c-toggle-group__button${on ? ' pf-m-selected' : ''}" data-channel="${c}" aria-pressed="${on}"${off ? ' disabled' : ''}><span class="pf-v6-c-toggle-group__text">${esc(t(`channel.${c}`))}</span></button></div>`;
+  }).join('');
+  const info = channelInfo();
+  const stable = channelInfo('stable');
+  let help;
+  if (!loaded) help = state.channel === 'stable' ? '' : t('channel.loading');
+  else if (!info) help = t('channel.unavailable');
+  else if (state.channel === 'stable') help = t('channel.stable.desc', { tag: info.tag });
+  else if (state.channel === 'prerelease') help = info.same ? t('channel.prerelease.same', { tag: info.tag }) : t('channel.prerelease.desc', { tag: info.tag });
+  else help = t('channel.ci.desc');
+  $('channel-help').textContent = help;
+  $('channel-help-item').classList.toggle('pf-m-warning', state.channel === 'ci');
+
+  // What the chosen pre-release or CI build is, when a UEFI image is chosen.
+  const target = state.board?.targets.find((x) => x.id === state.targetId);
+  let alert = '';
+  if (info && target?.image) alert = channelAlert(info, stable);
+  $('channel-alert').innerHTML = alert;
+  $('channel-alert').hidden = !alert;
+}
+
+function channelAlert(info, stable) {
+  if (state.channel === 'ci') {
+    return alertHtml('warning', t('ci.title'), `<p>${t('ci.body', { commit: commitLink(info.commit), time: esc(when(info.published)) })}</p>`);
+  }
+  if (state.channel === 'prerelease' && !info.same) {
+    return alertHtml('info', t('pre.title'), `<p>${t('pre.body', { tag: releaseLink(info), stable: stable ? esc(stable.tag) : '?' })}</p>`);
+  }
+  return '';
+}
+
+$('channel-group').addEventListener('click', (e) => {
+  const button = e.target.closest('button[data-channel]');
+  if (!button || button.disabled || state.running || state.channel === button.dataset.channel) return;
+  state.channel = button.dataset.channel;
+  state.reached = Math.min(state.reached, 1);
+  state.finished = false;
+  $('ci-ack').checked = false;
+  render();
+});
+
 function renderTargets() {
   const b = state.board;
   if (!b) return;
-  $('firmware-lead').textContent = `What to write to the ${b.storage} of the ${b.name}.`;
-  const v = versionOf(b);
-  const rows = b.targets.map((t) => ({
-    id: t.id,
-    label: t.image && v ? `${t.label} ${v}` : t.label,
-    note: t.note,
-  }));
-  rows.push({ id: 'custom', label: 'A file from this computer', note: 'Any .img or .bin, written from sector 0.' });
-  $('target-radios').innerHTML = rows.map((r) => `<div class="pf-v6-c-radio">
-      <input class="pf-v6-c-radio__input" type="radio" name="target" id="target-${r.id}" value="${r.id}"${state.targetId === r.id ? ' checked' : ''}>
-      <label class="pf-v6-c-radio__label" for="target-${r.id}">${esc(r.label)}</label>
+  $('firmware-lead').textContent = t('fw.lead', { storage: tr(b.storage), board: b.name });
+  renderChannels();
+  const rows = b.targets.map((x) => {
+    const r = resolveTarget(b, x);
+    return {
+      id: x.id,
+      label: x.image && r ? `${tr(x.label)} ${r.version || stableVersionOf(b) || ''}`.trim() : tr(x.label),
+      note: r ? tr(x.note) : t('fw.notInChannel'),
+      disabled: !r,
+    };
+  });
+  rows.push({ id: 'custom', label: t('fw.custom'), note: t('fw.custom.note') });
+  $('target-radios').innerHTML = rows.map((r) => `<div class="pf-v6-c-radio${r.disabled ? ' pf-m-disabled' : ''}">
+      <input class="pf-v6-c-radio__input" type="radio" name="target" id="target-${r.id}" value="${r.id}"${state.targetId === r.id ? ' checked' : ''}${r.disabled ? ' disabled' : ''}>
+      <label class="pf-v6-c-radio__label${r.disabled ? ' pf-m-disabled' : ''}" for="target-${r.id}">${esc(r.label)}</label>
       <span class="pf-v6-c-radio__description">${esc(r.note)}</span>
     </div>`).join('');
   $('file-row').hidden = state.targetId !== 'custom';
-  $('file-name').textContent = state.file ? `${state.file.name}, ${(state.file.size / 1048576).toFixed(1)} MiB` : 'No file chosen';
+  $('file-name').textContent = state.file ? `${state.file.name}, ${(state.file.size / 1048576).toFixed(1)} MiB` : t('fw.noFile');
 }
 
 $('target-radios').addEventListener('change', (e) => {
@@ -128,6 +217,7 @@ $('target-radios').addEventListener('change', (e) => {
   state.reached = Math.min(state.reached, 1);
   state.finished = false;
   $('ack').checked = false;
+  $('ci-ack').checked = false;
   render();
 });
 $('file-button').addEventListener('click', () => $('file-input').click());
@@ -148,22 +238,42 @@ function dl(term, desc) {
 
 function renderReview() {
   const b = state.board;
-  const t = currentTarget();
-  if (!b || !t) return;
-  const v = versionOf(b);
-  const what = t.image && v ? `${t.label} ${v}` : t.label;
-  const size = t.blob ? `${(t.blob.size / 1048576).toFixed(1)} MiB`
-    : t.slice ? `${((t.slice[1] - t.slice[0]) / 1048576).toFixed(1)} MiB of the image` : 'the whole image';
-  $('review').innerHTML = dl('Board', esc(b.name))
-    + dl('Firmware', esc(what))
-    + dl('File', `<span class="detail">${esc(t.fileName || t.file)}</span>`)
-    + dl('Written to', `${esc(b.storage)}, from sector ${t.lba}, ${esc(size)}`);
-  $('erase-alert').innerHTML = alertHtml('warning', 'What this replaces', `<p>${esc(t.erases)}</p>`);
-  $('maskrom-steps').innerHTML = b.maskrom.map((s) => `<li>${esc(s)}</li>`).join('');
-  const link = (b.maskromNote ? esc(b.maskromNote) + ' ' : '')
-    + (b.maskromLink ? `<a href="${esc(b.maskromLink.href)}" target="_blank" rel="noopener">${esc(b.maskromLink.text)}</a>. ` : '');
-  $('maskrom-more').innerHTML = `${link}Linux and macOS need no driver. On Windows the device needs the WinUSB driver, installed with <a href="https://zadig.akeo.ie/">Zadig</a>. More in the <a href="https://edk2.gahingwoo.com/FLASHING.html">flashing instructions</a>.`;
+  const tg = currentTarget();
+  if (!b || !tg) return;
+  const v = tg.version || (tg.image ? stableVersionOf(b) : null);
+  const what = tg.image && v ? `${tr(tg.label)} ${v}` : tr(tg.label);
+  const size = tg.blob ? `${(tg.blob.size / 1048576).toFixed(1)} MiB`
+    : tg.slice ? t('review.size.part', { mib: ((tg.slice[1] - tg.slice[0]) / 1048576).toFixed(1) }) : t('review.size.whole');
+  const info = tg.image ? channelInfo(tg.channel || 'stable') : null;
+  let source = '';
+  if (info && tg.channel === 'ci') source = t('review.source.ci', { commit: commitLink(info.commit), time: esc(when(info.published)) });
+  else if (info) source = t(info.prerelease && !info.same ? 'review.source.prerelease' : 'review.source.release', { link: releaseLink(info) });
+  $('review').innerHTML = dl(t('review.board'), esc(b.name))
+    + dl(t('review.firmware'), esc(what))
+    + (source ? dl(t('review.source'), source) : '')
+    + dl(t('review.file'), `<span class="detail">${esc(tg.fileName || tg.file)}</span>`)
+    + (tg.sha256 ? dl(t('review.sha'), t('review.sha.value', { sha: `<span class="detail">${esc(tg.sha256)}</span>` })) : '')
+    + dl(t('review.to'), esc(t('review.to.value', { storage: tr(b.storage), lba: tg.lba, size })));
+  const isCi = tg.image && tg.channel === 'ci';
+  $('review-alert').innerHTML = isCi && info ? channelAlert(info, channelInfo('stable')) : '';
+  $('review-alert').hidden = !isCi;
+  $('erase-alert').innerHTML = alertHtml('warning', t('review.replaces'), `<p>${esc(tr(tg.erases))}</p>`);
+  $('maskrom-steps').innerHTML = b.maskrom.map((s) => `<li>${esc(tr(s))}</li>`).join('');
+  const link = (b.maskromNote ? esc(tr(b.maskromNote)) + ' ' : '')
+    + (b.maskromLink ? `<a href="${esc(b.maskromLink.href)}" target="_blank" rel="noopener">${esc(tr(b.maskromLink.text))}</a>. ` : '');
+  $('maskrom-more').innerHTML = link + t('maskrom.more', {
+    zadig: '<a href="https://zadig.akeo.ie/">Zadig</a>',
+    docs: `<a href="https://edk2.gahingwoo.com/flash.html">${esc(t('maskrom.docs'))}</a>`,
+  });
   $('ack-block').hidden = state.targetId !== 'custom';
+  $('ci-ack-block').hidden = !isCi;
+}
+
+// Whether the write needs a box ticked first: a file from this computer, or a CI build.
+function needsAck() {
+  const target = currentTarget();
+  if (state.targetId === 'custom' && !$('ack').checked) return true;
+  return !!(target?.image && target.channel === 'ci' && !$('ci-ack').checked);
 }
 
 function setProgress(percent, title) {
@@ -205,16 +315,16 @@ function onStdout(text) {
 function reconnect(request) {
   return new Promise((resolve) => {
     const show = (failed) => {
-      $('run-alert').innerHTML = alertHtml('info', 'Choose the board again',
-        `<p>The loader is running and the board has come back as a new USB device. Reconnect the cable if the board does not show up.</p>${failed ? `<p>${esc(failed)}</p>` : ''}`,
-        '<button class="pf-v6-c-button pf-m-primary" type="button" id="reconnect"><span class="pf-v6-c-button__text">Choose the board</span></button>');
+      $('run-alert').innerHTML = alertHtml('info', t('reconnect.title'),
+        `<p>${esc(t('reconnect.body'))}</p>${failed ? `<p>${esc(failed)}</p>` : ''}`,
+        `<button class="pf-v6-c-button pf-m-primary" type="button" id="reconnect"><span class="pf-v6-c-button__text">${esc(t('reconnect.button'))}</span></button>`);
       $('reconnect').addEventListener('click', async () => {
         try {
           await request();
           $('run-alert').innerHTML = '';
           resolve();
         } catch (e) {
-          show('No device was chosen. Try again.');
+          show(t('reconnect.retry'));
         }
       });
       $('reconnect').focus();
@@ -232,7 +342,7 @@ async function start() {
   $('run-block').hidden = false;
   $('run-alert').innerHTML = '';
   $('log').textContent = '';
-  setProgress(0, 'Starting');
+  setProgress(0, t('run.starting'));
   render();
   try {
     await runFlash({
@@ -245,21 +355,21 @@ async function start() {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return await r.blob();
         } catch (e) {
-          throw new Error(`Could not download ${name} (${e.message}). Nothing was written.`);
+          throw new Error(t('flash.download', { name: name.replace(/\?.*/, ''), why: e.message }));
         }
       },
       board, target,
       ui: { status: (t) => setProgress(null, t), log, progress: (p) => setProgress(p), reconnect },
     });
-    setProgress(100, 'Written');
-    $('run-alert').innerHTML = alertHtml('success', 'Written', `<p>${esc(target.done)}</p>`);
-    log('\n' + target.done);
+    setProgress(100, t('run.written'));
+    $('run-alert').innerHTML = alertHtml('success', t('run.written'), `<p>${esc(tr(target.done))}</p>`);
+    log('\n' + tr(target.done));
     state.finished = true;
   } catch (err) {
     const cancelled = err && err.name === 'NotFoundError';
-    const message = cancelled ? 'No device was chosen. Nothing was written.' : (err.message || String(err));
-    setProgress(null, 'Stopped');
-    $('run-alert').innerHTML = alertHtml(cancelled ? 'info' : 'danger', cancelled ? 'No device chosen' : 'The write did not finish', `<p>${esc(message)}</p>`);
+    const message = cancelled ? t('run.noDevice.body') : (err.message || String(err));
+    setProgress(null, t('run.stopped'));
+    $('run-alert').innerHTML = alertHtml(cancelled ? 'info' : 'danger', cancelled ? t('run.noDevice') : t('run.failed'), `<p>${esc(message)}</p>`);
     log('\n' + message, 'err');
     if (!cancelled) setLogOpen(true);
   } finally {
@@ -300,6 +410,14 @@ document.querySelectorAll('.pf-v6-c-wizard__nav-link').forEach((link) => {
 $('back').addEventListener('click', () => goTo(state.step - 1));
 $('next').addEventListener('click', () => { if (state.step === 2) start(); else goTo(state.step + 1); });
 $('ack').addEventListener('change', render);
+$('ci-ack').addEventListener('change', render);
+$('lang-toggle').addEventListener('click', () => {
+  setLang(getLang() === 'zh' ? 'en' : 'zh');
+  applyStatic();
+  renderNotices();
+  renderBoards();
+  render();
+});
 
 function render() {
   document.querySelectorAll('.step').forEach((el) => { el.hidden = +el.dataset.step !== state.step; });
@@ -313,7 +431,7 @@ function render() {
     if (current) link.setAttribute('aria-current', 'step'); else link.removeAttribute('aria-current');
   });
   $('toggle-num').textContent = String(state.step + 1);
-  $('toggle-name').textContent = STEP_NAMES[state.step];
+  $('toggle-name').textContent = t(STEP_KEYS[state.step]);
 
   if (state.step === 1) renderTargets();
   if (state.step === 2) renderReview();
@@ -322,28 +440,31 @@ function render() {
   const label = next.querySelector('.pf-v6-c-button__text');
   let note = '';
   if (state.step < 2) {
-    label.textContent = 'Next';
+    label.textContent = t('next');
     next.disabled = !canLeave(state.step);
-    if (state.step === 1 && state.targetId === 'custom' && !state.file) note = 'Choose a file first.';
+    if (state.step === 1 && state.targetId === 'custom' && !state.file) note = t('note.chooseFile');
   } else {
-    label.textContent = state.running ? 'Writing' : state.finished ? 'Write again' : 'Connect and write';
-    const needAck = state.targetId === 'custom' && !$('ack').checked;
+    label.textContent = state.running ? t('run.writing') : state.finished ? t('run.again') : t('run.connect');
+    const needAck = needsAck();
     next.disabled = state.running || !state.rk || !navigator.usb || needAck;
-    if (!navigator.usb) note = 'This browser cannot reach USB devices.';
-    else if (state.toolError) note = 'The write tool did not load.';
-    else if (!state.rk) note = 'Loading the write tool.';
-    else if (needAck) note = 'Tick the box above first.';
-    else if (state.running) note = 'Keep this page open and the cable connected.';
+    if (!navigator.usb) note = t('note.noUsb');
+    else if (state.toolError) note = t('note.toolError');
+    else if (!state.rk) note = t('note.loading');
+    else if (needAck) note = t('note.ack');
+    else if (state.running) note = t('note.running');
   }
   $('back').disabled = state.step === 0 || state.running;
   $('footer-note').textContent = note;
 }
 
 // ── Start ──────────────────────────────────────────────────────────────────
+applyStatic();
 renderBoards();
 render();
 
-fetch('./firmware.json').then((r) => (r.ok ? r.json() : null)).catch(() => null).then((v) => {
+// no-cache: revalidated on every visit, so the page never pairs a new image
+// with an old description of it (flash.js checks the SHA-256 as well).
+fetch('./firmware.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((v) => {
   if (!v) return;
   state.versions = v;
   renderBoards();
@@ -351,16 +472,14 @@ fetch('./firmware.json').then((r) => (r.ok ? r.json() : null)).catch(() => null)
 });
 
 if (!navigator.usb) {
-  setNotice('usb', alertHtml('warning', 'This browser cannot reach USB devices',
-    '<p>Writing needs WebUSB, which Chrome and Edge have on a computer. You can still look through the steps here.</p>'));
+  setNotice('usb', () => alertHtml('warning', t('notice.noUsb.title'), `<p>${esc(t('notice.noUsb.body'))}</p>`));
 } else if (!self.crossOriginIsolated) {
   // The service worker in index.html reloads the page once it is installed.
   // If the page is still not isolated after that, say so.
   setTimeout(() => {
     if (!self.crossOriginIsolated && !state.rk) {
       state.toolError = 'not isolated';
-      setNotice('tool', alertHtml('danger', 'The write tool could not start',
-        '<p>This page could not turn on cross-origin isolation, which the USB code needs. Reload the page; a private window or blocked service workers prevent it.</p>'));
+      setNotice('tool', () => alertHtml('danger', t('notice.isolated.title'), `<p>${esc(t('notice.isolated.body'))}</p>`));
       render();
     }
   }, 4000);
@@ -374,7 +493,7 @@ if (!navigator.usb) {
     render();
   }).catch((err) => {
     state.toolError = err.message || String(err);
-    setNotice('tool', alertHtml('danger', 'The write tool did not load', `<p>${esc(state.toolError)}</p><p>Reload the page to try again.</p>`));
+    setNotice('tool', () => alertHtml('danger', t('notice.tool.title'), `<p>${esc(state.toolError)}</p><p>${esc(t('notice.tool.reload'))}</p>`));
     render();
   });
 }

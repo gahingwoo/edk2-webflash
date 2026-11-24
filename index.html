@@ -27,12 +27,13 @@
   <header class="pf-v6-c-masthead pf-m-display-inline">
     <div class="pf-v6-c-masthead__main">
       <div class="pf-v6-c-masthead__brand">
-        <span class="pf-v6-c-masthead__logo brand"><span class="brand-name">RK3576 firmware flash</span></span>
+        <span class="pf-v6-c-masthead__logo brand"><span class="brand-name" data-i18n="page.title">RK3576 firmware flash</span></span>
       </div>
     </div>
     <div class="pf-v6-c-masthead__content masthead-actions">
-      <a class="pf-v6-c-button pf-m-link masthead-docs" href="https://edk2.gahingwoo.com/FLASHING.html"><span class="pf-v6-c-button__text">Documentation</span></a>
-      <a class="pf-v6-c-button pf-m-secondary" href="https://github.com/gahingwoo/edk2-rk3576/releases/latest"><span class="pf-v6-c-button__text">Releases</span></a>
+      <button class="pf-v6-c-button pf-m-plain" type="button" id="lang-toggle" data-i18n-aria="page.lang.aria" aria-label="显示中文"><span class="pf-v6-c-button__text" data-i18n="page.lang">中文</span></button>
+      <a class="pf-v6-c-button pf-m-link masthead-docs" href="https://edk2.gahingwoo.com/flash.html"><span class="pf-v6-c-button__text" data-i18n="page.docs">Documentation</span></a>
+      <a class="pf-v6-c-button pf-m-secondary" href="https://github.com/gahingwoo/edk2-rk3576/releases"><span class="pf-v6-c-button__text" data-i18n="page.releases">Releases</span></a>
     </div>
   </header>
 
@@ -45,7 +46,7 @@
 
       <section class="pf-v6-c-page__main-wizard pf-m-fill" aria-label="Write firmware">
           <div class="pf-v6-c-wizard">
-            <button class="pf-v6-c-wizard__toggle" id="wizard-toggle" type="button" aria-label="Steps" aria-expanded="false">
+            <button class="pf-v6-c-wizard__toggle" id="wizard-toggle" type="button" aria-label="Steps" data-i18n-aria="steps" aria-expanded="false">
               <span class="pf-v6-c-wizard__toggle-list">
                 <span class="pf-v6-c-wizard__toggle-list-item"><span class="pf-v6-c-wizard__toggle-num" id="toggle-num">1</span> <span id="toggle-name">Board</span></span>
               </span>
@@ -53,11 +54,11 @@
             </button>
             <div class="pf-v6-c-wizard__outer-wrap">
               <div class="pf-v6-c-wizard__inner-wrap">
-                <nav class="pf-v6-c-wizard__nav" id="wizard-nav" aria-label="Steps">
+                <nav class="pf-v6-c-wizard__nav" id="wizard-nav" aria-label="Steps" data-i18n-aria="steps">
                   <ol class="pf-v6-c-wizard__nav-list" role="list">
-                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="0"><span class="pf-v6-c-wizard__nav-link-main">Board</span></button></li>
-                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="1"><span class="pf-v6-c-wizard__nav-link-main">Firmware</span></button></li>
-                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="2"><span class="pf-v6-c-wizard__nav-link-main">Write</span></button></li>
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="0"><span class="pf-v6-c-wizard__nav-link-main" data-i18n="step.board">Board</span></button></li>
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="1"><span class="pf-v6-c-wizard__nav-link-main" data-i18n="step.firmware">Firmware</span></button></li>
+                    <li class="pf-v6-c-wizard__nav-item"><button class="pf-v6-c-wizard__nav-link" type="button" data-step="2"><span class="pf-v6-c-wizard__nav-link-main" data-i18n="step.write">Write</span></button></li>
                   </ol>
                 </nav>
                 <div class="pf-v6-c-wizard__main" tabindex="-1" id="wizard-main">
@@ -65,17 +66,17 @@
 
                     <div class="step pf-v6-l-stack pf-m-gutter" data-step="0">
                       <div class="pf-v6-l-stack__item">
-                        <h1 class="pf-v6-c-title pf-m-h2">Board</h1>
-                        <p class="step-lead">Choose the board to write to.</p>
+                        <h1 class="pf-v6-c-title pf-m-h2" data-i18n="step.board">Board</h1>
+                        <p class="step-lead" data-i18n="board.lead">Choose the board to write to.</p>
                       </div>
                       <div class="pf-v6-l-stack__item">
                         <table class="pf-v6-c-table pf-m-grid-md pf-m-compact" role="grid" aria-label="Boards">
                           <thead class="pf-v6-c-table__thead">
                             <tr class="pf-v6-c-table__tr" role="row">
-                              <th class="pf-v6-c-table__th" scope="col"><span class="pf-v6-screen-reader">Select</span></th>
-                              <th class="pf-v6-c-table__th" scope="col">Board</th>
-                              <th class="pf-v6-c-table__th" scope="col">Written to</th>
-                              <th class="pf-v6-c-table__th" scope="col">UEFI firmware</th>
+                              <th class="pf-v6-c-table__th" scope="col"><span class="pf-v6-screen-reader" data-i18n="board.select">Select</span></th>
+                              <th class="pf-v6-c-table__th" scope="col" data-i18n="board.col.board">Board</th>
+                              <th class="pf-v6-c-table__th" scope="col" data-i18n="board.col.storage">Written to</th>
+                              <th class="pf-v6-c-table__th" scope="col" data-i18n="board.col.uefi">UEFI firmware</th>
                             </tr>
                           </thead>
                           <tbody class="pf-v6-c-table__tbody" role="rowgroup" id="board-rows"></tbody>
@@ -88,18 +89,28 @@
 
                     <div class="step pf-v6-l-stack pf-m-gutter" data-step="1" hidden>
                       <div class="pf-v6-l-stack__item">
-                        <h1 class="pf-v6-c-title pf-m-h2">Firmware</h1>
+                        <h1 class="pf-v6-c-title pf-m-h2" data-i18n="step.firmware">Firmware</h1>
                         <p class="step-lead" id="firmware-lead"></p>
                       </div>
                       <div class="pf-v6-l-stack__item">
+                        <div class="pf-v6-c-form__group">
+                          <div class="pf-v6-c-form__group-label"><span class="pf-v6-c-form__label" id="channel-label"><span class="pf-v6-c-form__label-text" data-i18n="channel.label">UEFI firmware from</span></span></div>
+                          <div class="pf-v6-c-form__group-control">
+                            <div class="pf-v6-c-toggle-group" role="group" aria-labelledby="channel-label" id="channel-group"></div>
+                            <div class="pf-v6-c-form__helper-text" aria-live="polite"><div class="pf-v6-c-helper-text"><div class="pf-v6-c-helper-text__item" id="channel-help-item"><span class="pf-v6-c-helper-text__item-text" id="channel-help"></span></div></div></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="pf-v6-l-stack__item" id="channel-alert" hidden></div>
+                      <div class="pf-v6-l-stack__item">
                         <form class="pf-v6-c-form" novalidate onsubmit="return false">
-                          <div class="pf-v6-c-form__group" role="radiogroup" aria-label="Firmware">
+                          <div class="pf-v6-c-form__group" role="radiogroup" aria-label="Firmware" data-i18n-aria="step.firmware">
                             <div class="pf-v6-c-form__group-control pf-m-stack" id="target-radios"></div>
                           </div>
                         </form>
                       </div>
                       <div class="pf-v6-l-stack__item file-row" id="file-row" hidden>
-                        <button class="pf-v6-c-button pf-m-secondary" type="button" id="file-button"><span class="pf-v6-c-button__text">Choose a file</span></button>
+                        <button class="pf-v6-c-button pf-m-secondary" type="button" id="file-button"><span class="pf-v6-c-button__text" data-i18n="fw.chooseFile">Choose a file</span></button>
                         <span class="detail" id="file-name">No file chosen</span>
                         <input type="file" id="file-input" accept=".img,.bin,application/octet-stream" hidden>
                       </div>
@@ -107,22 +118,29 @@
 
                     <div class="step pf-v6-l-stack pf-m-gutter" data-step="2" hidden>
                       <div class="pf-v6-l-stack__item">
-                        <h1 class="pf-v6-c-title pf-m-h2">Write</h1>
-                        <p class="step-lead" id="write-lead">Nothing has been written yet. Check this before you go on.</p>
+                        <h1 class="pf-v6-c-title pf-m-h2" data-i18n="step.write">Write</h1>
+                        <p class="step-lead" id="write-lead" data-i18n="write.lead">Nothing has been written yet. Check this before you go on.</p>
                       </div>
                       <div class="pf-v6-l-stack__item">
                         <dl class="pf-v6-c-description-list pf-m-horizontal pf-m-compact" id="review"></dl>
                       </div>
+                      <div class="pf-v6-l-stack__item" id="review-alert" hidden></div>
                       <div class="pf-v6-l-stack__item" id="erase-alert"></div>
                       <div class="pf-v6-l-stack__item pf-v6-c-content" id="maskrom-block">
-                        <h2 class="pf-v6-c-content--h3">Put the board into MaskROM</h2>
+                        <h2 class="pf-v6-c-content--h3" data-i18n="maskrom.title">Put the board into MaskROM</h2>
                         <ol class="pf-v6-c-content--ol" id="maskrom-steps"></ol>
                         <p class="pf-v6-c-content--small" id="maskrom-more"></p>
                       </div>
                       <div class="pf-v6-l-stack__item" id="ack-block" hidden>
                         <label class="pf-v6-c-check" for="ack">
                           <input class="pf-v6-c-check__input" type="checkbox" id="ack">
-                          <span class="pf-v6-c-check__label">This file is an image for this board and this storage.</span>
+                          <span class="pf-v6-c-check__label" data-i18n="ack.custom">This file is an image for this board and this storage.</span>
+                        </label>
+                      </div>
+                      <div class="pf-v6-l-stack__item" id="ci-ack-block" hidden>
+                        <label class="pf-v6-c-check" for="ci-ack">
+                          <input class="pf-v6-c-check__input" type="checkbox" id="ci-ack">
+                          <span class="pf-v6-c-check__label" data-i18n="ack.ci">I understand that this CI build has not been tested on a board and may not work.</span>
                         </label>
                       </div>
                       <div class="pf-v6-l-stack__item" id="run-block" hidden>
@@ -142,7 +160,7 @@
                               <div class="pf-v6-c-expandable-section__toggle">
                                 <button class="pf-v6-c-button pf-m-link" type="button" id="log-toggle" aria-expanded="false" aria-controls="log-content">
                                   <span class="pf-v6-c-button__icon pf-m-start"><span class="pf-v6-c-expandable-section__toggle-icon"><svg class="pf-v6-svg" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true" role="img" width="1em" height="1em"><path d="M18.71 5.29a.996.996 0 0 0-1.41 0l-7.29 7.29-7.3-7.29a.987.987 0 0 0-1.41-.02.987.987 0 0 0-.02 1.41l.02.02 7.65 7.65c.29.29.68.44 1.06.44s.77-.15 1.06-.44l7.65-7.65a.996.996 0 0 0 0-1.41Z"/></svg></span></span>
-                                  <span class="pf-v6-c-button__text">Log</span>
+                                  <span class="pf-v6-c-button__text" data-i18n="run.log">Log</span>
                                 </button>
                               </div>
                               <div class="pf-v6-c-expandable-section__content log" id="log-content" role="region" aria-labelledby="log-toggle" hidden>
@@ -160,7 +178,7 @@
               <footer class="pf-v6-c-wizard__footer">
                 <div class="pf-v6-c-action-list">
                   <div class="pf-v6-c-action-list__group">
-                    <div class="pf-v6-c-action-list__item"><button class="pf-v6-c-button pf-m-secondary" type="button" id="back" disabled><span class="pf-v6-c-button__text">Back</span></button></div>
+                    <div class="pf-v6-c-action-list__item"><button class="pf-v6-c-button pf-m-secondary" type="button" id="back" disabled><span class="pf-v6-c-button__text" data-i18n="back">Back</span></button></div>
                     <div class="pf-v6-c-action-list__item"><button class="pf-v6-c-button pf-m-primary" type="button" id="next"><span class="pf-v6-c-button__text">Next</span></button></div>
                   </div>
                   <div class="pf-v6-c-action-list__group">

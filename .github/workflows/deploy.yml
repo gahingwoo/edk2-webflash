@@ -1,25 +1,62 @@
 name: Deploy to GitHub Pages
 
 on:
+  # Every branch is tested and built; only main is deployed.
   push:
-    branches: [main]
   workflow_dispatch:
-  # The UEFI images are bundled at deploy time, so a new edk2-rk3576 release
-  # reaches the site on the next run.  Daily keeps that under a day.
+  # The UEFI images are bundled at deploy time, so a new edk2-rk3576 release,
+  # or a new build of its rolling "ci" release, reaches the site on the next
+  # run.  Hourly, the check job compares what the release channels point at
+  # with the fingerprint in the live firmware.json and the site is only
+  # rebuilt when they differ.
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Channel choice of the bundler
+        run: python3 -m unittest discover -s tests -v
+      - name: flash.js in Chrome
+        run: |
+          python3 -m http.server 8000 >/dev/null 2>&1 &
+          sleep 1
+          CHROME=google-chrome python3 tests/browser.py test http://localhost:8000/tests/flash.test.html
+
+  # On the hourly schedule: is there anything new to bundle?  While
+  # edk2-rk3576's build replaces the ci release there is briefly none; that
+  # is not a change, or the site would lose its CI build until the next hour.
+  check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    outputs:
+      changed: ${{ steps.fp.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: fp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(python3 scripts/bundle-firmware.py --fingerprint)
+          live=$(curl -sf https://flash.gahingwoo.com/firmware.json \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin).get("fingerprint", ""))' || true)
+          echo "now:  $now"
+          echo "live: $live"
+          if [ "$now" = "$live" ] || [ "${now##*;ci=}" = "" ]; then changed=false; else changed=true; fi
+          echo "changed=$changed" | tee -a "$GITHUB_OUTPUT"
+
   build:
+    needs: [test, check]
+    if: >-
+      always() && needs.test.result == 'success'
+      && (github.event_name != 'schedule' || needs.check.outputs.changed == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,19 +169,20 @@ jobs:
           find _site -name '*.html' -o -name '*.js' \
             | xargs sed -i "s/WASM_HASH/${WASM_HASH}/g"
 
-      # The UEFI images.  GitHub release downloads carry no CORS headers, so the
-      # page cannot fetch them from github.com; serve them from this origin
-      # like the loader and the U-Boot images.  Fixed names, so the page does
-      # not change per release.  The eMMC images are used on the CM5-IO and the
-      # TaishanPi 3M because `rkdeveloptool wl` writes the eMMC on those boards.
-      #
-      # A release may carry an older image for a board it did not change, so
-      # the version of each image is read from its file name and written to
-      # firmware.json, which the page shows.
-      - name: Bundle the latest edk2-rk3576 release
+      # The UEFI images of three channels: the latest release, the newest
+      # release counting pre-releases, and the rolling "ci" release of
+      # edk2-rk3576's main.  GitHub release downloads carry no CORS headers,
+      # so the page cannot fetch them from github.com; serve them from this
+      # origin like the loader and the U-Boot images, under fixed names per
+      # channel.  Each is checked against its release's SHA256SUMS.txt here,
+      # and firmware.json records its version, size and SHA-256, which the
+      # page shows and checks the download against.  The eMMC images are used
+      # on the CM5-IO and the TaishanPi 3M because `rkdeveloptool wl` writes
+      # the eMMC on those boards.
+      - name: Bundle the edk2-rk3576 release channels
         env:
           GH_TOKEN: ${{ github.token }}
-        run: sh scripts/bundle-firmware.sh _site
+        run: python3 scripts/bundle-firmware.py _site
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -152,6 +190,13 @@ jobs:
 
   deploy:
     needs: build
+    if: always() && needs.build.result == 'success' && github.ref == 'refs/heads/main'
+    # One deploy at a time, queued rather than cancelled.  Only a run that
+    # built something gets here, so an hourly check that found nothing new
+    # never displaces a deploy of a push.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -21,7 +21,8 @@ and a Windows install without a USB stick, are in the desktop app
 The page is a three-step wizard.
 
 1. **Board**: Radxa ROCK 4D, ArmSoM CM5-IO or LCKFB TaishanPi 3M.
-2. **Firmware**: one of the choices in the table below.
+2. **Firmware**: one of the choices in the table below, and where the UEFI
+   image comes from (see [Release channels](#release-channels)).
 3. **Write**: the page lists what will be written and where, and how to put
    the board into MaskROM. Click **Connect and write** and pick the Rockchip
    device from the browser prompt. The loader is sent and the board comes back
@@ -49,6 +50,30 @@ edk2-rk3576's [flashing page](https://edk2.gahingwoo.com/flash.html#updating-the
 which uses the same range for its `rkdeveloptool` and `dd` commands. A file
 larger than the ROCK 4D's 16 MiB SPI NOR is refused.
 
+### Release channels
+
+The UEFI images come from one of three channels of edk2-rk3576, chosen on the
+Firmware step, as in Maskrom Studio:
+
+| Channel | What it is |
+|---|---|
+| Release (default) | the [latest release](https://github.com/gahingwoo/edk2-rk3576/releases/latest) |
+| Pre-release | the newest release by version, pre-releases included; the same files as Release when no pre-release is newer |
+| CI build | the rolling [`ci` pre-release](https://github.com/gahingwoo/edk2-rk3576/releases/tag/ci), which edk2-rk3576's build workflow replaces after every successful build of main |
+
+A CI build has not been run on a board. The page says so, shows the commit it
+was built from and when, and writes it only after a box saying so is ticked.
+"Keep the partitions" writes the same range, sectors 64 to 43647, from every
+channel, and the nvdata check runs on every image, so the saved UEFI settings
+stay whichever channel is written.
+
+Every image is checked twice: at deploy time against its release's
+`SHA256SUMS.txt`, and in the browser, after the download and before the board
+is touched, against the size and SHA-256 that `firmware.json` records for it.
+
+The page is in English and Simplified Chinese: the browser's language, or the
+button in the masthead.
+
 The TaishanPi 3M has no MaskROM button: two pads marked `MSK` are shorted while
 powering on, or F4 is pressed during the boot countdown of a board that
 already runs this firmware.
@@ -63,21 +88,27 @@ called from a click, which the second button provides.
 index.html            the page: PatternFly 6 Page, Masthead and Wizard markup
 src/app.js            the wizard and what it shows (main thread)
 src/boards.js         boards, their choices, sectors and wording
+src/i18n.js           English and Chinese wording, and the language choice
 src/flash.js          the write sequence, with everything it touches passed in
 src/proxy.js          Promise-based Worker RPC wrapper
 src/worker.js         Dedicated Worker: WASM host, WORKERFS mount manager
 src/theme.js          light or dark from localStorage.theme, else the system
 assets/app.css        page CSS on top of PatternFly
 assets/patternfly/    the PatternFly parts the page uses, built by build.sh
-scripts/bundle-firmware.sh   downloads the release images at deploy time
+scripts/bundle-firmware.py   downloads the images of the three channels at deploy time
 tests/flash.test.html browser tests of src/flash.js against fakes
+tests/browser.py      runs those tests in headless Chrome (CI), or takes a screenshot
+tests/test_bundle.py  tests of the bundler's channel choice
 dist/                 CI-built artefacts (not in tree)
   rkdeveloptool.js    Emscripten glue
   rkdeveloptool.wasm
 rock4d-spi-edk2.img   CI-bundled from the latest edk2-rk3576 release (not in tree)
 cm5io-emmc-edk2.img
 tspi3m-emmc-edk2.img
-firmware.json         the release that was bundled and each image's own version
+prerelease/*.img      the same names, when the Pre-release channel is a different release
+ci/*.img              the same names, from the rolling ci release
+firmware.json         per channel: the release, its commit for CI, and each
+                      image's file, version, size and SHA-256
 coi-serviceworker.js  Retrofits COOP/COEP for SharedArrayBuffer on static hosts
 CMakeLists.wasm.txt   WASM build definition
 ```
@@ -87,7 +118,8 @@ The write sequence (MaskROM path):
 ```
 1. Fetch rk3576_spl_loader.bin and the board's image in parallel, same origin
 2. requestDevice(): the user selects the MaskROM-mode device
-3. Await the downloads, cut the part to write if the choice writes a part,
+3. Await the downloads, check the image's size and SHA-256 against
+   firmware.json, cut the part to write if the choice writes a part,
    check sizes, mount the Blobs into WASM WORKERFS
 4. rkdeveloptool db: send the SPL loader; the SoC resets into loader mode
 5. The user clicks Choose the board: requestDevice() again
@@ -108,6 +140,10 @@ HTTPS. `dist/` is built by CI: copy `rkdeveloptool.js` and `rkdeveloptool.wasm`
 from the live site into `dist/` to run the page locally.
 `tests/flash.test.html`, opened the same way, runs the write sequence against
 a fake tool and a fake USB device and prints PASS or FAIL for each check.
+CI runs it in headless Chrome with `python3 tests/browser.py test
+http://localhost:8000/tests/flash.test.html`, and the bundler's tests with
+`python3 -m unittest discover -s tests`. To run the page with real images,
+`python3 scripts/bundle-firmware.py <dir>` fills a directory the way CI does.
 
 The PatternFly CSS is assembled from the npm package by
 `assets/patternfly/build.sh`, which lists the components. To use another
@@ -116,14 +152,18 @@ component, add it there and run the script again. Do not edit
 
 ## Building
 
-Requires Emscripten 3.1.48 and CMake. See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for the exact steps. CI builds and deploys to GitHub Pages on every push to `main`, and daily.
+Requires Emscripten 3.1.48 and CMake. See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for the exact steps. CI tests and builds every branch and deploys `main` to GitHub Pages.
 
-The UEFI images are downloaded from the latest
-[edk2-rk3576 release](https://github.com/gahingwoo/edk2-rk3576/releases/latest)
-at deploy time by `scripts/bundle-firmware.sh`, checked against its
-`SHA256SUMS.txt`, and served from this site. The page cannot fetch them from GitHub directly: release downloads carry
-no CORS headers. A new release therefore reaches the site on the next daily
-run, or at once with a manual run of the workflow.
+The UEFI images are downloaded from edk2-rk3576's releases at deploy time by
+`scripts/bundle-firmware.py`, checked against each release's
+`SHA256SUMS.txt`, and served from this site. The page cannot fetch them from
+GitHub directly: release downloads carry no CORS headers. Every hour the
+workflow compares what the three channels point at with the `fingerprint` in
+the live `firmware.json`, and rebuilds the site when a release was published or
+the `ci` release was replaced. A new build therefore reaches the site within
+about an hour, or at once with a manual run of the workflow. If the
+Pre-release or CI channel cannot be bundled, it is left out and the page shows
+it as unavailable; the Release channel failing stops the deploy.
 
 
 ## License
