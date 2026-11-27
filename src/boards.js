@@ -65,8 +65,8 @@ export const BOARDS = [
     targets: [
       {
         id: 'uefi', label: L('UEFI firmware', 'UEFI 固件'), image: 'rock4d', file: 'rock4d-spi-edk2.img', lba: 0,
-        note: L('The edk2-rk3576 image for the SPI NOR flash. Linux and Windows 11 both start from it; Windows needs a build newer than release 0.4.1 (the CI build until the next release).',
-          '用于 SPI NOR 闪存的 edk2-rk3576 镜像。Linux 和 Windows 11 都能从它启动；Windows 需要比正式版 0.4.1 新的构建（下一个正式版之前用 CI 构建）。'),
+        note: L('The edk2-rk3576 image for the SPI NOR flash. Linux and Windows 11 both start from it; Windows needs release 0.5.0 or later.',
+          '用于 SPI NOR 闪存的 edk2-rk3576 镜像。Linux 和 Windows 11 都能从它启动；Windows 需要 0.5.0 或更新的正式版。'),
         erases: L('The whole SPI NOR flash is rewritten. Disks are not touched.', '整个 SPI NOR 闪存会被重写。不会改动磁盘。'),
         done: L('The board restarts into UEFI.', '开发板重启进入 UEFI。'),
       },
